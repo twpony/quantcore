@@ -1,0 +1,60 @@
+# Build outputs
+build/
+cmake-build-*/
+out/
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# Testing
+Testing/
+coverage/
+*.gcno
+*.gcda
+*.gcov
+
+# Binary files (*.bin for market data)
+*.bin.qcf
+
+# QuantCore binary format data files
+*.qcf
+
+# Core dumps
+core
+core.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Package
+*.deb
+*.rpm
+*.tar.gz
+
+# Temporary / log files
+*.log
+/tmp/
+.claude/
