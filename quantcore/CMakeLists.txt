@@ -21,6 +21,8 @@ target_sources(quantcore PRIVATE
     io/CsvReader.cpp
     io/BinaryWriter.cpp
     io/BinaryReader.cpp
+    io/ParquetReader.cpp
+    io/HDF5Reader.cpp
 
     # registry
     registry/OperatorRegistry.cpp
@@ -47,6 +49,34 @@ if(QUANTCORE_ENABLE_FAST_MATH)
         target_compile_options(quantcore PUBLIC /fp:fast)
     endif()
     target_compile_definitions(quantcore PUBLIC QUANTCORE_FAST_MATH=1)
+endif()
+
+# Apache Arrow / Parquet I/O
+if(QUANTCORE_ENABLE_PARQUET)
+    include(../cmake/FindArrow.cmake)
+    if(Arrow_FOUND AND PARQUET_FOUND)
+        target_compile_definitions(quantcore PUBLIC QUANTCORE_HAS_PARQUET=1)
+        target_include_directories(quantcore PUBLIC ${ARROW_INCLUDE_DIRS})
+        target_link_libraries(quantcore PUBLIC Arrow::Arrow Parquet::Parquet)
+        message(STATUS "QuantCore: Parquet I/O enabled (Arrow ${ARROW_INCLUDE_DIR})")
+    else()
+        set(QUANTCORE_ENABLE_PARQUET OFF)
+        message(WARNING "QuantCore: Arrow/Parquet not found — Parquet I/O disabled")
+    endif()
+endif()
+
+# HDF5 I/O
+if(QUANTCORE_ENABLE_HDF5)
+    include(../cmake/FindHDF5.cmake)
+    if(HDF5_FOUND)
+        target_compile_definitions(quantcore PUBLIC QUANTCORE_HAS_HDF5=1)
+        target_include_directories(quantcore PUBLIC ${HDF5_INCLUDE_DIRS})
+        target_link_libraries(quantcore PUBLIC ${HDF5_LIBRARIES})
+        message(STATUS "QuantCore: HDF5 I/O enabled (${HDF5_INCLUDE_DIR})")
+    else()
+        set(QUANTCORE_ENABLE_HDF5 OFF)
+        message(WARNING "QuantCore: HDF5 not found — HDF5 I/O disabled")
+    endif()
 endif()
 
 # Generate compile_commands.json for tooling

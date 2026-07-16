@@ -19,6 +19,8 @@ add_executable(test_csv_reader   unit/test_csv_reader.cpp)
 # Integration tests
 add_executable(test_full_pipeline integration/test_full_pipeline.cpp)
 add_executable(test_csv_roundtrip integration/test_csv_roundtrip.cpp)
+add_executable(test_parquet_reader integration/test_parquet_reader.cpp)
+add_executable(test_hdf5_reader integration/test_hdf5_reader.cpp)
 
 # Regression tests
 add_executable(golden_factors    regression/golden_factors.cpp)
@@ -29,6 +31,7 @@ set(TEST_TARGETS
     test_expression test_buffer_pool test_simd_cross_validate
     test_registry test_csv_reader
     test_full_pipeline test_csv_roundtrip
+    test_parquet_reader test_hdf5_reader
     golden_factors
 )
 
