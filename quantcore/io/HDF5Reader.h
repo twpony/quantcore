@@ -50,8 +50,9 @@ struct HDF5ReaderConfig {
     std::string volumeColumn    = "volume";
     std::string amountColumn    = "amount";
 
-    /// If true, volume/amount are rounded to int64_t.
-    bool roundVolumeAndAmount = true;
+    /// Volume/amount values are stored as double (no rounding needed).
+    /// Kept for backward API compatibility — no longer affects read behavior.
+    bool roundVolumeAndAmount = false;
 
     /// Maximum rows to read (-1 = all).
     int64_t maxRows = -1;

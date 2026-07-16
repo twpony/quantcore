@@ -290,21 +290,14 @@ HDF5ReadResult HDF5Reader::readFile(const std::string& filepath) {
 
                 double vwap = 0.0;
                 if (sr.volume > 0 && sr.amount > 0) {
-                    vwap = sr.amount / sr.volume;
+                    // vol in 手 (100 shares), amount in 千元 (1000 CNY)
+                    vwap = sr.amount * 10.0 / sr.volume;
                 }
                 md.column<double>(Field::VWAP)[i] = vwap;
 
-                if (config_.roundVolumeAndAmount) {
-                    md.column<int64_t>(Field::VOLUME)[i] =
-                        static_cast<int64_t>(std::llround(sr.volume));
-                    md.column<int64_t>(Field::AMOUNT)[i] =
-                        static_cast<int64_t>(std::llround(sr.amount));
-                } else {
-                    md.column<int64_t>(Field::VOLUME)[i] =
-                        static_cast<int64_t>(sr.volume);
-                    md.column<int64_t>(Field::AMOUNT)[i] =
-                        static_cast<int64_t>(sr.amount);
-                }
+                // Volume and Amount: store as double directly
+                md.column<double>(Field::VOLUME)[i] = sr.volume;
+                md.column<double>(Field::AMOUNT)[i] = sr.amount;
             }
 
             // Detect trade date from the data
@@ -376,6 +369,9 @@ HDF5Reader::readDirectory(const std::string& dirPath) {
 #include "quantcore/core/Logger.h"
 
 namespace quantcore {
+
+// Define Impl minimally so unique_ptr works
+struct HDF5Reader::Impl {};
 
 HDF5Reader::HDF5Reader(const HDF5ReaderConfig&)
     : impl_(nullptr) {}

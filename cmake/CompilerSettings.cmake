@@ -1,7 +1,7 @@
 # CompilerSettings.cmake — centralized compiler options for QuantCore
 
-# Require at least C++17
-set(CMAKE_CXX_STANDARD 17)
+# Require at least C++20
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -24,8 +24,8 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
     add_compile_definitions(QUANTCORE_DEBUG=1)
 endif()
 
-# Release configuration (default — preserves numerical correctness)
-if(CMAKE_BUILD_TYPE STRELEASE "Release" OR NOT CMAKE_BUILD_TYPE)
+# Release configuration
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
     message(STATUS "QuantCore: Release build — O3 + native arch (no -ffast-math)")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-O3 -march=native -DNDEBUG)
@@ -35,7 +35,7 @@ if(CMAKE_BUILD_TYPE STRELEASE "Release" OR NOT CMAKE_BUILD_TYPE)
 endif()
 
 # RelWithDebInfo configuration
-if(CMAKE_BUILD_TYPE STRELEASE "RelWithDebInfo")
+if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     message(STATUS "QuantCore: RelWithDebInfo build — O2 + debug symbols")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-O2 -g -march=native)

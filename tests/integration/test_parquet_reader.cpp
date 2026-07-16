@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -227,9 +228,9 @@ TEST_F(ParquetReaderTest, ReadMultipleDates) {
 
             // Volume should be non-negative
             if (md.rowCount() > 0) {
-                int64_t vol = md.column<int64_t>(Field::VOLUME)[0];
-                EXPECT_GE(vol, 0) << "Volume should be non-negative for "
-                                  << md.assetId();
+                double vol = md.column<double>(Field::VOLUME)[0];
+                EXPECT_GE(vol, 0.0) << "Volume should be non-negative for "
+                                   << md.assetId();
             }
         }
     }
@@ -277,38 +278,38 @@ TEST_F(ParquetReaderTest, OHLcvDataIntegrity) {
         auto& lowCol    = md.column<double>(Field::LOW);
         auto& closeCol  = md.column<double>(Field::CLOSE);
         auto& vwapCol   = md.column<double>(Field::VWAP);
-        auto& volCol    = md.column<int64_t>(Field::VOLUME);
-        auto& amtCol    = md.column<int64_t>(Field::AMOUNT);
+        auto& volCol    = md.column<double>(Field::VOLUME);
+        auto& amtCol    = md.column<double>(Field::AMOUNT);
 
         for (std::size_t i = 0; i < md.rowCount(); ++i) {
             double o = openCol[i];
             double h = highCol[i];
             double l = lowCol[i];
             double c = closeCol[i];
-            int64_t v = volCol[i];
-            int64_t a = amtCol[i];
+            double v = volCol[i];
+            double a = amtCol[i];
 
             // Basic OHLC invariants
             if (h < l) ++priceFieldErrors;
             if (h < o || h < c) ++priceFieldErrors;
 
-            // VWAP = amount / volume (computed in reader)
+            // VWAP check: raw amount/vol should be close to stored VWAP
+            // (VWAP = amount * 10 / vol, accounting for 手/千元 units)
             if (v > 0 && a > 0) {
-                double expectedVwap = static_cast<double>(a) / static_cast<double>(v);
+                double expectedVwap = a * 10.0 / v;
                 double actualVwap = vwapCol[i];
-                // Allow 0.1% relative tolerance for rounding
                 double relErr = std::abs(expectedVwap - actualVwap) /
                                 std::max(expectedVwap, 1e-10);
-                if (relErr > 0.05) {  // 5% tolerance due to int64 rounding
+                if (relErr > 0.01) {
                     ++vwapCheckErrors;
                 }
             }
 
             // Volume and amount should be non-negative
-            EXPECT_GE(v, 0) << "Negative volume for " << md.assetId()
-                            << " at row " << i;
-            EXPECT_GE(a, 0) << "Negative amount for " << md.assetId()
-                            << " at row " << i;
+            EXPECT_GE(v, 0.0) << "Negative volume for " << md.assetId()
+                             << " at row " << i;
+            EXPECT_GE(a, 0.0) << "Negative amount for " << md.assetId()
+                             << " at row " << i;
         }
     }
 
@@ -398,7 +399,7 @@ TEST_F(ParquetReaderTest, ComputeBasicFactor) {
     MarketData* targetMd = nullptr;
     for (auto& md : result.assets) {
         auto& vwap = md.column<double>(Field::VWAP);
-        auto& vol  = md.column<int64_t>(Field::VOLUME);
+        auto& vol  = md.column<double>(Field::VOLUME);
         if (vol[0] > 0 && vwap[0] > 0) {
             targetMd = &md;
             break;
@@ -514,7 +515,7 @@ TEST_F(ParquetReaderTest, ColumnAlignment) {
         EXPECT_TRUE(md.column<double>(Field::CLOSE).isAligned());
 
         // Volume/Amount columns should also be aligned
-        EXPECT_TRUE(md.column<int64_t>(Field::VOLUME).isAligned());
-        EXPECT_TRUE(md.column<int64_t>(Field::AMOUNT).isAligned());
+        EXPECT_TRUE(md.column<double>(Field::VOLUME).isAligned());
+        EXPECT_TRUE(md.column<double>(Field::AMOUNT).isAligned());
     }
 }

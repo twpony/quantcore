@@ -90,7 +90,7 @@ TEST_F(HDF5ReaderTest, DefaultConfiguration) {
     EXPECT_EQ(cfg.closeColumn, "close");
     EXPECT_EQ(cfg.volumeColumn, "volume");
     EXPECT_EQ(cfg.amountColumn, "amount");
-    EXPECT_TRUE(cfg.roundVolumeAndAmount);
+    EXPECT_FALSE(cfg.roundVolumeAndAmount);
     EXPECT_TRUE(cfg.skipNullRows);
 }
 

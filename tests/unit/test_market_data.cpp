@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "quantcore/core/ErrorHandling.h"
 #include "quantcore/storage/Column.h"
 #include "quantcore/storage/MarketData.h"
 #include "quantcore/storage/TimestampIndex.h"
@@ -267,8 +268,8 @@ protected:
             md_.column<double>(Field::LOW)[i]    = base - 1.0;
             md_.column<double>(Field::CLOSE)[i]  = base + 0.5;
             md_.column<double>(Field::VWAP)[i]   = base + 0.3;
-            md_.column<int64_t>(Field::VOLUME)[i] = static_cast<int64_t>(i + 1) * 10000;
-            md_.column<int64_t>(Field::AMOUNT)[i] = static_cast<int64_t>(i + 1) * 500000;
+            md_.column<double>(Field::VOLUME)[i] = static_cast<double>(i + 1) * 10000.0;
+            md_.column<double>(Field::AMOUNT)[i] = static_cast<double>(i + 1) * 500000.0;
         }
     }
 
@@ -303,11 +304,11 @@ TEST_F(MarketDataTest, PriceFieldsDouble) {
     EXPECT_DOUBLE_EQ(md_.column<double>(Field::VWAP)[7], 17.3);
 }
 
-TEST_F(MarketDataTest, VolumeFieldsInt64) {
-    EXPECT_EQ(md_.column<int64_t>(Field::VOLUME)[0], 10000);
-    EXPECT_EQ(md_.column<int64_t>(Field::VOLUME)[9], 100000);
-    EXPECT_EQ(md_.column<int64_t>(Field::AMOUNT)[0], 500000);
-    EXPECT_EQ(md_.column<int64_t>(Field::AMOUNT)[9], 5000000);
+TEST_F(MarketDataTest, VolumeFieldsDouble) {
+    EXPECT_DOUBLE_EQ(md_.column<double>(Field::VOLUME)[0], 10000.0);
+    EXPECT_DOUBLE_EQ(md_.column<double>(Field::VOLUME)[9], 100000.0);
+    EXPECT_DOUBLE_EQ(md_.column<double>(Field::AMOUNT)[0], 500000.0);
+    EXPECT_DOUBLE_EQ(md_.column<double>(Field::AMOUNT)[9], 5000000.0);
 }
 
 TEST_F(MarketDataTest, SetColumn) {
@@ -367,11 +368,11 @@ TEST_F(MarketDataTest, SliceFieldAccess) {
 
 TEST_F(MarketDataTest, SliceVolumeField) {
     auto view = md_.slice(0, 3);
-    auto volView = view.column<int64_t>(Field::VOLUME);
+    auto volView = view.column<double>(Field::VOLUME);
     EXPECT_EQ(volView.size(), 3u);
-    EXPECT_EQ(volView[0], 10000);
-    EXPECT_EQ(volView[1], 20000);
-    EXPECT_EQ(volView[2], 30000);
+    EXPECT_DOUBLE_EQ(volView[0], 10000.0);
+    EXPECT_DOUBLE_EQ(volView[1], 20000.0);
+    EXPECT_DOUBLE_EQ(volView[2], 30000.0);
 }
 
 TEST_F(MarketDataTest, SliceTimestampView) {
@@ -451,21 +452,21 @@ TEST(MarketDataIntegrationTest, BuildFromScratch) {
         md.column<double>(Field::LOW)[i]    = open - 0.8;
         md.column<double>(Field::CLOSE)[i]  = open + 0.3;
         md.column<double>(Field::VWAP)[i]   = open + 0.15;
-        md.column<int64_t>(Field::VOLUME)[i] = static_cast<int64_t>(100000 + i * 5000);
-        md.column<int64_t>(Field::AMOUNT)[i] = static_cast<int64_t>(2000000 + i * 100000);
+        md.column<double>(Field::VOLUME)[i] = static_cast<double>(100000 + i * 5000);
+        md.column<double>(Field::AMOUNT)[i] = static_cast<double>(2000000 + i * 100000);
     }
 
     // Verify
     EXPECT_EQ(md.rowCount(), 5u);
     EXPECT_TRUE(md.allColumnsAligned());
     EXPECT_DOUBLE_EQ(md.column<double>(Field::CLOSE)[4], 22.3);
-    EXPECT_EQ(md.column<int64_t>(Field::VOLUME)[4], 120000);
+    EXPECT_DOUBLE_EQ(md.column<double>(Field::VOLUME)[4], 120000.0);
 
     // Slice and verify
     auto view = md.slice(1, 4);
     EXPECT_EQ(view.rowCount(), 3u);
     EXPECT_DOUBLE_EQ(view.column<double>(Field::OPEN)[0], 20.5);
-    EXPECT_EQ(view.column<int64_t>(Field::AMOUNT)[2], 2200000);
+    EXPECT_DOUBLE_EQ(view.column<double>(Field::AMOUNT)[2], 2300000.0);
 
     // Timestamp view correctness
     EXPECT_EQ(view.timestamps().timestampAt(0), timestamps[1]);

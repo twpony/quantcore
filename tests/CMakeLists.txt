@@ -2,9 +2,6 @@
 
 include(../cmake/FindGTest.cmake)
 
-# Convenience library for test utilities
-add_library(test_utils STATIC)
-
 # Unit tests
 add_executable(test_column       unit/test_column.cpp)
 add_executable(test_market_data  unit/test_market_data.cpp)

@@ -194,11 +194,11 @@ QuantCore/
 |------|------|
 | **SoA 列式存储** | 每字段独立连续数组，禁用 AOS 结构体数组 |
 | **64 字节对齐** | 适配 AVX-512 缓存行，使用 `AlignedAllocator<T, 64>` |
-| **泛型支持** | `Column<double>` / `Column<int64_t>` / `Column<uint8_t>` |
+| **泛型支持** | `Column<double>` / `Column<int64_t>` / `Column<uint8_t>` (量额已改为 double) |
 | **空值 bitmask** | 惰性分配，仅存在空值时占用内存，NaN/Null 语义分离 |
 | **零拷贝视图** | `ColView<T>` 不持有内存，`MarketDataView` 零拷贝切片 |
 | **mmap 加载** | 二进制格式内存布局与 `Column<T>` 一致，支持直接映射 |
-| **类型异构** | `MarketData` 使用 `std::variant` 共存 double (价格) 和 int64_t (量额) |
+| **类型异构** | 所有 7 个字段统一使用 `Column<double>`，`std::variant` 保留扩展能力 |
 
 ### 表达式系统
 
@@ -335,8 +335,8 @@ QC_HDF5_DATA_DIR=/path/to/hdf5   ./tests/test_hdf5_reader
 | `Field::HIGH` | 最高价 | `double` | — |
 | `Field::LOW` | 最低价 | `double` | — |
 | `Field::CLOSE` | 收盘价 | `double` | — |
-| `Field::VOLUME` | 成交量 | `int64_t` | 避免 double 精度损失 |
-| `Field::AMOUNT` | 成交额 | `int64_t` | 避免 double 精度损失 |
+| `Field::VOLUME` | 成交量 | `double` | 保留原始精度，避免 llround 截断 |
+| `Field::AMOUNT` | 成交额 | `double` | 保留原始精度，避免 llround 截断 |
 | `Field::VWAP` | 均价 | `double` | 成交量加权平均价 |
 
 ### 数据层次
@@ -386,7 +386,7 @@ md.allocateAllFields();  // 分配全部 7 个字段
 
 // 字段访问
 auto& close  = md.column<double>(Field::CLOSE);
-auto& volume = md.column<int64_t>(Field::VOLUME);
+auto& volume = md.column<double>(Field::VOLUME);
 close[0] = 10.5;
 
 // 元数据
@@ -412,7 +412,7 @@ const auto& tsView = view.timestamps();
 ```cpp
 auto close   = marketData.column<double>(Field::CLOSE);
 auto vwap    = marketData.column<double>(Field::VWAP);
-auto volume  = marketData.column<int64_t>(Field::VOLUME);
+auto volume  = marketData.column<double>(Field::VOLUME);
 
 // 构建表达式 — 仅构建树，不计算
 auto factorExpr = abs(log(close) - log(vwap)) * volume.toDouble();
@@ -524,14 +524,14 @@ int main() {
     for (size_t i = 0; i < md.rowCount(); ++i) {
         md.column<double>(Field::CLOSE)[i]  = /* ... */;
         md.column<double>(Field::VWAP)[i]   = /* ... */;
-        md.column<int64_t>(Field::VOLUME)[i] = /* ... */;
+        md.column<double>(Field::VOLUME)[i] = /* ... */;
     }
 
     // 2. 构建因子表达式
     ExecutionEngine engine;
     auto& close  = md.column<double>(Field::CLOSE);
     auto& vwap   = md.column<double>(Field::VWAP);
-    auto& volume = md.column<int64_t>(Field::VOLUME);
+    auto& volume = md.column<double>(Field::VOLUME);
 
     // 日内振幅
     auto amplitude = (md.column<double>(Field::HIGH) -
@@ -719,9 +719,9 @@ QuantCore 支持多种数据格式的读取，通过统一的 I/O 层接口将�
 | `high` | double | `Field::HIGH` |
 | `low` | double | `Field::LOW` |
 | `close` | double | `Field::CLOSE` |
-| `vol` | double | `Field::VOLUME` (→ int64_t) |
-| `amount` | double | `Field::AMOUNT` (→ int64_t) |
-| (计算) | double | `Field::VWAP` = amount/vol |
+| `vol` | double | `Field::VOLUME` (直接存储 double) |
+| `amount` | double | `Field::AMOUNT` (直接存储 double) |
+| (计算) | double | `Field::VWAP` = amount × 10 / vol |
 
 ```cpp
 #include "quantcore/io/ParquetReader.h"
@@ -776,7 +776,6 @@ ParquetReaderConfig cfg;
 cfg.tsCodeColumn     = "symbol";       // 不叫 ts_code
 cfg.openColumn       = "OPEN_PRICE";   // 不叫 open
 cfg.volumeColumn     = "volume_shares";
-cfg.roundVolumeAndAmount = false;      // 不四舍五入
 cfg.skipNullRows     = false;          // 保留空值行
 
 ParquetDailyReader reader(cfg);

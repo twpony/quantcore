@@ -22,7 +22,6 @@ find_path(ARROW_INCLUDE_DIR
         ${CONDA_PREFIX}/include
         /usr/include
         /usr/local/include
-    PATH_SUFFIXES arrow
 )
 
 # Find Arrow library

@@ -18,8 +18,7 @@ MarketData::MarketData(std::string assetId, TimestampIndex timestamps)
     , timestamps_(std::move(timestamps))
 {
     // Initialize all field slots with empty double columns by default.
-    // Fields that need int64_t (VOLUME, AMOUNT) start empty until
-    // explicitly set.
+    // All fields are double; columns start empty until explicitly set.
 }
 
 bool MarketData::allColumnsAligned() const {
@@ -87,9 +86,9 @@ void MarketData::allocateAllFields() {
     columns_[static_cast<std::size_t>(Field::CLOSE)]  = Column<double>(rows);
     columns_[static_cast<std::size_t>(Field::VWAP)]   = Column<double>(rows);
 
-    // Quantity fields: int64_t
-    columns_[static_cast<std::size_t>(Field::VOLUME)] = Column<int64_t>(rows);
-    columns_[static_cast<std::size_t>(Field::AMOUNT)] = Column<int64_t>(rows);
+    // Quantity fields: double
+    columns_[static_cast<std::size_t>(Field::VOLUME)] = Column<double>(rows);
+    columns_[static_cast<std::size_t>(Field::AMOUNT)] = Column<double>(rows);
 }
 
 // ============================================================

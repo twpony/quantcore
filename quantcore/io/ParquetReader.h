@@ -59,9 +59,9 @@ struct ParquetReaderConfig {
     std::string volumeColumn     = "vol";
     std::string amountColumn     = "amount";
 
-    /// If true, volume values are rounded to int64_t (shares).
-    /// If false, they are cast directly (truncated).
-    bool roundVolumeAndAmount = true;
+    /// Volume/amount values are stored as double (no rounding needed).
+    /// Kept for backward API compatibility — no longer affects read behavior.
+    bool roundVolumeAndAmount = false;
 
     /// Maximum rows to read per file (-1 = all).
     int64_t maxRows = -1;

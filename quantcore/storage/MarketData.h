@@ -6,8 +6,7 @@
 // array indexed by the `Field` enum — O(1) access with no hashing.
 //
 // Supported field types:
-//   OPEN / HIGH / LOW / CLOSE / VWAP  → Column<double>
-//   VOLUME / AMOUNT                    → Column<int64_t>
+//   OPEN / HIGH / LOW / CLOSE / VWAP / VOLUME / AMOUNT  → Column<double>
 //
 // Variant storage is used internally via ColumnDataVariant so that each
 // field slot can hold its native type.  Accessors template the type at
@@ -55,7 +54,7 @@ constexpr bool fieldIsDouble(Field f) noexcept {
         case Field::VWAP:
             return true;
         case Field::VOLUME: case Field::AMOUNT:
-            return false;
+            return true;
         default:
             return true;  // Default to double for unknown
     }

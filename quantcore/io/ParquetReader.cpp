@@ -241,25 +241,17 @@ ParquetReadResult ParquetDailyReader::tableToMarketData(
             md.column<double>(Field::LOW)[i]    = sr.low;
             md.column<double>(Field::CLOSE)[i]  = sr.close;
 
-            // VWAP = amount / volume (if both are positive)
+            // VWAP = (amount * 1000) / (volume * 100) = amount * 10 / volume
+            // vol is in 手 (lots of 100 shares), amount is in 千元 (thousands of CNY)
             double vwap = 0.0;
             if (sr.volume > 0 && sr.amount > 0) {
-                vwap = sr.amount / sr.volume;
+                vwap = sr.amount * 10.0 / sr.volume;
             }
             md.column<double>(Field::VWAP)[i] = vwap;
 
-            // Volume and Amount: round to int64_t per config
-            if (config_.roundVolumeAndAmount) {
-                md.column<int64_t>(Field::VOLUME)[i] =
-                    static_cast<int64_t>(std::llround(sr.volume));
-                md.column<int64_t>(Field::AMOUNT)[i] =
-                    static_cast<int64_t>(std::llround(sr.amount));
-            } else {
-                md.column<int64_t>(Field::VOLUME)[i] =
-                    static_cast<int64_t>(sr.volume);
-                md.column<int64_t>(Field::AMOUNT)[i] =
-                    static_cast<int64_t>(sr.amount);
-            }
+            // Volume and Amount: store as double directly
+            md.column<double>(Field::VOLUME)[i] = sr.volume;
+            md.column<double>(Field::AMOUNT)[i] = sr.amount;
         }
 
         result.assets.push_back(std::move(md));

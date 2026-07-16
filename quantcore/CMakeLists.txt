@@ -28,7 +28,7 @@ target_sources(quantcore PRIVATE
     registry/OperatorRegistry.cpp
 )
 
-target_include_directories(quantcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(quantcore PUBLIC ${PROJECT_SOURCE_DIR})
 
 # SIMD preprocessor defines
 if(QUANTCORE_ENABLE_AVX512)
