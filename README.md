@@ -1,6 +1,6 @@
 # QuantCore — 高性能 C++ 量化因子引擎
 
-[![C++ Standard](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://isocpp.org/)
+[![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://isocpp.org/)
 [![Build](https://img.shields.io/badge/build-CMake-green.svg)](https://cmake.org/)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -20,6 +20,7 @@ QuantCore 是一个基于现代 C++ 构建的**列式存储高性能量化因子
 - [SIMD 向量化](#simd-向量化)
 - [API 使用示例](#api-使用示例)
 - [构建选项](#构建选项)
+- [数据 I/O 层](#数据-io-层)
 - [测试](#测试)
 - [性能基准](#性能基准)
 - [远期规划](#远期规划)
@@ -37,10 +38,10 @@ QuantCore 是一个基于现代 C++ 构建的**列式存储高性能量化因子
 │                     表达式系统 (ET)                       │
 │  ExprNode → UnaryExpr / BinaryExpr → FusedLoopGenerator │
 ├──────────────┬────────────────┬─────────────────────────┤
-│   UnaryOps   │   BinaryOps    │     数据 I/O 层          │
-│  Abs Log     │  Add Sub Mul   │  CsvReader / BinaryIO    │
-│  Sqrt Diff   │  Div Max Min   │  mmap 零拷贝加载          │
-│  Shift Exp   │  Pow Cmp       │  pybind11 预留            │
+│   UnaryOps   │   BinaryOps    │     数据 I/O 层 ★        │
+│  Abs Log     │  Add Sub Mul   │  Csv / Parquet / HDF5     │
+│  Sqrt Diff   │  Div Max Min   │  Binary mmap 零拷贝        │
+│  Shift Exp   │  Pow Cmp       │  pybind11 预留             │
 ├──────────────┴────────────────┴─────────────────────────┤
 │                     数据存储层                            │
 │  Column<T> → ColView<T> → TimestampIndex                 │
@@ -54,7 +55,10 @@ QuantCore 是一个基于现代 C++ 构建的**列式存储高性能量化因子
 ### 数据流
 
 ```
-CSV / 二进制文件
+CSV / Parquet / HDF5 / 二进制文件
+      │
+      ▼
+  ParquetDailyReader / HDF5Reader / CsvReader
       │
       ▼
   MarketData (内存)
@@ -128,10 +132,12 @@ QuantCore/
 │   │   ├── BufferHandle.h          # RAII 内存句柄
 │   │   └── EngineMetrics.h         # 性能指标收集
 │   │
-│   ├── io/                         # 数据 I/O
+│   ├── io/                         # ★ 数据 I/O (多格式支持)
 │   │   ├── CsvReader.h / .cpp      # CSV 行情数据解析
 │   │   ├── BinaryWriter.h / .cpp   # 二进制列存写入
-│   │   └── BinaryReader.h / .cpp   # mmap 零拷贝读取
+│   │   ├── BinaryReader.h / .cpp   # mmap 零拷贝读取
+│   │   ├── ParquetReader.h / .cpp  # ★ Parquet 日线数据读取 (Arrow)
+│   │   └── HDF5Reader.h / .cpp     # ★ HDF5 日线数据读取
 │   │
 │   └── registry/                   # 算子注册中心
 │       └── OperatorRegistry.h/.cpp # 算子名称 ↔ 枚举映射
@@ -147,9 +153,11 @@ QuantCore/
 │   │   ├── test_simd_cross_validate.cpp  # SIMD 交叉验证
 │   │   ├── test_registry.cpp       # 算子注册测试
 │   │   └── test_csv_reader.cpp     # CSV 解析测试
-│   ├── integration/                # 集成测试
+│   ├── integration/                # ★ 集成测试 (真实数据)
 │   │   ├── test_full_pipeline.cpp  # 端到端：加载→计算→验证
-│   │   └── test_csv_roundtrip.cpp  # CSV 往返测试
+│   │   ├── test_csv_roundtrip.cpp  # CSV 往返测试
+│   │   ├── test_parquet_reader.cpp # ★ Parquet 真实数据测试
+│   │   └── test_hdf5_reader.cpp   # ★ HDF5 真实数据测试
 │   └── regression/                 # 回归测试
 │       └── golden_factors.cpp      # Golden File 数值验证
 │
@@ -169,7 +177,9 @@ QuantCore/
 └── cmake/                          # CMake 模块
     ├── CompilerSettings.cmake      # 编译器配置
     ├── FindGTest.cmake             # GTest 发现/下载
-    └── FindGBenchmark.cmake        # GBenchmark 发现/下载
+    ├── FindGBenchmark.cmake        # GBenchmark 发现/下载
+    ├── FindArrow.cmake             # ★ Arrow + Parquet C++ 发现
+    └── FindHDF5.cmake              # ★ HDF5 C/C++ 发现
 ```
 
 ★ 标记 = 本期已完整实现
@@ -239,10 +249,20 @@ BufferPool (分级 Slab Allocator)
 
 | 组件 | 最低版本 | 推荐版本 |
 |------|---------|---------|
-| C++ 编译器 | GCC 9 / Clang 12 | GCC 11+ / Clang 15+ |
+| C++ 编译器 | GCC 11 / Clang 15 | GCC 11+ / Clang 15+ |
 | CMake | 3.20 | 3.25+ |
-| Google Test | 1.12 | (自动下载) |
-| Google Benchmark | 1.8 | (自动下载) |
+| C++ 标准 | C++20 | C++20 |
+| Google Test | 1.12 | (CMake 自动下载) |
+| Google Benchmark | 1.8 | (CMake 自动下载) |
+| Apache Arrow | 25.0.0 | (conda: `libarrow libparquet`) |
+| HDF5 | 2.1.0 | (conda: `hdf5`) |
+
+### 安装依赖 (conda)
+
+```bash
+# 安装 Arrow/Parquet 和 HDF5 C++ 库 (无需 sudo)
+conda install -c conda-forge libarrow=25.0.0 libparquet=25.0.0 hdf5
+```
 
 ### 构建
 
@@ -287,7 +307,21 @@ ctest --output-on-failure
 # 或单独运行
 ./tests/test_column
 ./tests/test_market_data
+./tests/test_parquet_reader   # 需本地 Parquet 数据
+./tests/test_hdf5_reader      # 需本地 HDF5 数据
 ```
+
+### 使用真实数据测试
+
+```bash
+# 默认数据目录: /home/twpony/quant/twpony/data_files/daily
+./tests/test_parquet_reader
+
+# 自定义数据目录
+QC_DATA_DIR=/path/to/your/daily  ./tests/test_parquet_reader
+QC_HDF5_DATA_DIR=/path/to/hdf5   ./tests/test_hdf5_reader
+```
+
 
 ---
 
@@ -564,6 +598,8 @@ auto q1Factor = engine.evaluate(
 | `QUANTCORE_ENABLE_AVX512` | ON | 启用 AVX-512 intrinsics |
 | `QUANTCORE_ENABLE_AVX2` | ON | 启用 AVX2 intrinsics |
 | `QUANTCORE_ENABLE_SSE42` | ON | 启用 SSE4.2 intrinsics |
+| `QUANTCORE_ENABLE_PARQUET` | ON | 启用 Parquet I/O（需 Apache Arrow） |
+| `QUANTCORE_ENABLE_HDF5` | ON | 启用 HDF5 I/O（需 HDF5 库） |
 | `QUANTCORE_ENABLE_FAST_MATH` | **OFF** | 启用 `-ffast-math`（可能损失精度） |
 
 > **重要**: `-ffast-math` 默认关闭。金融计算优先保证数值正确性和可复现性。
@@ -608,11 +644,15 @@ auto q1Factor = engine.evaluate(
 | `test_simd_cross_validate.cpp` | SIMD vs 标量逐元素交叉验证 |
 | `test_csv_reader.cpp` | CSV 解析/错误行跳过/日期格式 |
 | `test_registry.cpp` | 算子注册/查询/重复注册检测 |
+| `test_parquet_reader.cpp` | ★ Parquet 真实数据: 文件读取/OHLC 校验/因子计算 |
+| `test_hdf5_reader.cpp` | ★ HDF5 读取: 配置/异常/多格式兼容 |
 
-### 集成测试
+### 集成测试 (基于真实本地数据)
 
 | 测试文件 | 覆盖内容 |
 |---------|---------|
+| `test_parquet_reader.cpp` | ★ 单文件读取、字段验证、多日期、OHLC 完整性、TimestampIndex、因子计算、股票筛选、内存对齐 |
+| `test_hdf5_reader.cpp` | ★ HDF5 配置、自定义 schema、已存在文件读取、异常处理、统计追踪 |
 | `test_full_pipeline.cpp` | CSV 加载 → 因子计算 → 结果验证 |
 | `test_csv_roundtrip.cpp` | CSV 读 → Binary 写 → Binary mmap 读 → 对比 |
 
@@ -647,6 +687,119 @@ TEST(RegressionTest, StandardFactorSet) {
 cd build
 ./benchmarks/bench_unary_ops
 ./benchmarks/bench_expression_fusion
+```
+
+---
+
+## 数据 I/O 层
+
+QuantCore 支持多种数据格式的读取，通过统一的 I/O 层接口将不同格式的数据源转换为 `MarketData` 对象。
+
+### 支持的格式
+
+| 格式 | 读取器 | 库依赖 | 状态 |
+|------|--------|--------|------|
+| **Parquet** | `ParquetDailyReader` | Apache Arrow C++ 25+ | ✅ 已实现 |
+| **HDF5** | `HDF5Reader` | HDF5 C++ API | ✅ 已实现 |
+| CSV | `CsvMarketDataReader` | 标准库 | 🔧 接口就绪 |
+| 二进制列存 | `BinaryMarketDataReader` | 标准库 + mmap | 🔧 接口就绪 |
+
+### ParquetDailyReader
+
+读取按日期分片的 Parquet 日线数据，每文件包含当日全市场股票。
+
+**文件命名**: `YYYYMMDD.parquet`（如 `20260629.parquet`）
+
+**数据 Schema**:
+| 列名 | 类型 | 映射字段 |
+|------|------|---------|
+| `ts_code` | string | 资产代码 |
+| `trade_date` | string/int64 | 交易日期 (YYYYMMDD) |
+| `open` | double | `Field::OPEN` |
+| `high` | double | `Field::HIGH` |
+| `low` | double | `Field::LOW` |
+| `close` | double | `Field::CLOSE` |
+| `vol` | double | `Field::VOLUME` (→ int64_t) |
+| `amount` | double | `Field::AMOUNT` (→ int64_t) |
+| (计算) | double | `Field::VWAP` = amount/vol |
+
+```cpp
+#include "quantcore/io/ParquetReader.h"
+
+// 读取单个日期文件
+ParquetDailyReader reader;
+auto result = reader.readFile("/data/daily/20260629.parquet");
+
+// result.assets     → std::vector<MarketData> (每股票一个)
+// result.tradeDate  → 20260629
+// result.rowsRead   → 5510
+
+// 遍历结果
+for (const auto& md : result.assets) {
+    std::cout << md.assetId() << ": CLOSE="
+              << md.column<double>(Field::CLOSE)[0] << "\n";
+}
+
+// 按市场筛选
+int shCount = 0;
+for (const auto& md : result.assets) {
+    if (md.assetId().ends_with(".SH")) ++shCount;
+}
+
+// 批量读取整个目录 (按股票聚合)
+auto stockMap = reader.readDirectory("/data/daily/");
+// → map<string, vector<pair<date, MarketData>>>
+// stockMap["000001.SZ"] = [(20260626, md_day1), (20260627, md_day2), ...]
+```
+
+### HDF5Reader
+
+读取 HDF5 格式的日线数据，支持列式存储布局。
+
+```cpp
+#include "quantcore/io/HDF5Reader.h"
+
+HDF5ReaderConfig cfg;
+cfg.datasetPath = "/data";      // HDF5 dataset 路径
+cfg.openColumn  = "open";       // 可自定义列名
+cfg.closeColumn = "close";
+
+HDF5Reader reader(cfg);
+auto result = reader.readFile("/data/market_2026.h5");
+// result.assets → 同 ParquetDailyReader 的输出格式
+```
+
+### 自定义列名映射
+
+```cpp
+ParquetReaderConfig cfg;
+cfg.tsCodeColumn     = "symbol";       // 不叫 ts_code
+cfg.openColumn       = "OPEN_PRICE";   // 不叫 open
+cfg.volumeColumn     = "volume_shares";
+cfg.roundVolumeAndAmount = false;      // 不四舍五入
+cfg.skipNullRows     = false;          // 保留空值行
+
+ParquetDailyReader reader(cfg);
+auto result = reader.readFile("custom_schema.parquet");
+```
+
+### 条件编译
+
+当库不可用时，阅读器编译为安全的 stub 实现，调用时输出警告日志：
+
+```cmake
+# 禁用 Parquet 支持
+cmake .. -DQUANTCORE_ENABLE_PARQUET=OFF
+
+# 禁用 HDF5 支持
+cmake .. -DQUANTCORE_ENABLE_HDF5=OFF
+```
+
+代码中可通过宏判断：
+```cpp
+#if QUANTCORE_HAS_PARQUET
+    // Parquet 可用
+#endif
 ```
 
 ---
@@ -690,7 +843,7 @@ std::exception
 | P3 | GPU 后端 | CUDA/HIP/OpenCL 算子加速 |
 | P3 | MarketDataBundle | 多资产对齐面板，支持截面操作 |
 | P3 | 遗传规划 | 自动因子生成与筛选 |
-| P3 | Arrow 兼容 | Apache Arrow 列存格式互操作 |
+| P3 | Arrow 完整兼容 | Arrow 列存格式互操作 (Parquet 读取已完成) |
 
 ---
 
@@ -725,8 +878,10 @@ std::exception
 | SIMD 向量化 | 🔧 框架就绪 | ~5% |
 | 执行引擎 (Engine/BufferPool) | 🔧 接口就绪 | ~5% |
 | 数据 I/O (CSV/Binary) | 🔧 接口就绪 | ~5% |
+| 数据 I/O (ParquetReader) | ✅ 已实现 | 100% |
+| 数据 I/O (HDF5Reader) | ✅ 已实现 | 100% |
 | 算子注册中心 | 🔧 接口就绪 | ~10% |
-| 单元测试 | 🔧 存储层完成 | ~25% |
+| 单元测试 | 🔧 存储+IO层完成 | ~35% |
 
 ---
 
