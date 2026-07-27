@@ -38,10 +38,15 @@ QuantCore 是一个基于现代 C++ 构建的**列式存储高性能量化因子
 │                     表达式系统 (ET)                       │
 │  ExprNode → UnaryExpr / BinaryExpr → FusedLoopGenerator │
 ├──────────────┬────────────────┬─────────────────────────┤
-│   UnaryOps   │   BinaryOps    │     数据 I/O 层 ★        │
-│  Abs Log     │  Add Sub Mul   │  Csv / Parquet / HDF5     │
-│  Sqrt Diff   │  Div Max Min   │  Binary mmap 零拷贝        │
-│  Shift Exp   │  Pow Cmp       │  pybind11 预留             │
+│   Unary/Rolling │   BinaryOps    │     数据 I/O 层 ★        │
+│  Abs Log Sqrt  │  Add Sub Mul   │  Csv / Parquet / HDF5     │
+│  Exp Sign Neg  │  Div Max Min   │  Binary mmap 零拷贝        │
+│  Inv Not Rank  │  GT LT EQ NEQ  │  pybind11 预留             │
+│  Mean Var Med  │                │                            │
+│  Kurt Skew Qtl │                │                            │
+│  Sma Ema Arg*  │                │                            │
+│  Std Sum Diff  │                │                            │
+│  Shift Mul     │                │                            │
 ├──────────────┴────────────────┴─────────────────────────┤
 │                     数据存储层                            │
 │  Column<T> → ColView<T> → TimestampIndex                 │
@@ -112,12 +117,28 @@ QuantCore/
 │   ├── operators/                  # 算子层
 │   │   ├── UnaryOperator.h         # 一元算子接口
 │   │   ├── BinaryOperator.h        # 二元算子接口
-│   │   ├── unary/                  # 10 个一元算子
+│   │   ├── unary/                  # 12 个一元算子
 │   │   │   ├── Abs.h  Log.h  Sqrt.h  Neg.h  Sign.h
-│   │   │   ├── Diff.h  Shift.h  Square.h  Exp.h  Log10.h
-│   │   └── binary/                 # 11 个二元算子
-│   │       ├── Add.h  Sub.h  Mul.h  Div.h  Pow.h
-│   │       ├── Max.h  Min.h  Cmp.h (GT/LT/EQ/NEQ)
+│   │   │   ├── Square.h  Exp.h  Log10.h  Log2.h
+│   │   │   ├── Inv.h  Not.h  Rank.h
+│   │   └── binary/                 # 10 个二元算子
+│   │       ├── Add.h  Sub.h  Mul.h  Div.h
+│   │       ├── Max.h  Min.h  Gt.h  Lt.h  Eq.h  Neq.h
+│   │   ├── rolling/                # 滚动窗口算子 (18个)
+│   │   │   ├── Rolling{Sma,Ema,Diff,Shift}.h
+│   │   │   ├── Rolling{Mean,Var,Median,Mul}.h
+│   │   │   ├── Rolling{Max,Min,Std,Sum,Rank}.h
+│   │   │   ├── Rolling{ArgMax,ArgMin,Kurt,Skew}.h
+│   │   │   └── RollingQuantile.h
+│   │   ├── red/                    # ★ 聚合算子 (合并原 cross_section + reduction)
+│   │   │   ├── RedSum.h  RedMean.h  RedStd.h  RedVar.h
+│   │   │   ├── RedMin.h  RedMax.h  RedMul.h  RedMedian.h
+│   │   │   └── RedZScore.h  RedQuantile.h
+│   │   └── cs/                     # ★ 截面变换算子 (10个)
+│   │       ├── CsRank.h  CsQuantile.h  CsZScore.h  CsNormalize.h
+│   │       ├── CsNormalizeL1.h  CsNormalizeL2.h
+│   │       ├── CsWinsorize.h  CsWinsorizeMAD.h
+│   │       └── CsClip.h  CsDemean.h
 │   │
 │   ├── simd/                       # SIMD 向量化
 │   │   ├── SimdDispatcher.h/.cpp   # 运行时 CPU 特性派发
@@ -146,13 +167,17 @@ QuantCore/
 │   ├── unit/                       # 单元测试 (65%+)
 │   │   ├── test_column.cpp         # ★ Column/ColView 测试
 │   │   ├── test_market_data.cpp    # ★ MarketData/Timestamp 测试
-│   │   ├── test_unary_ops.cpp      # 一元算子测试
-│   │   ├── test_binary_ops.cpp     # 二元算子测试
 │   │   ├── test_expression.cpp     # 表达式系统测试
 │   │   ├── test_buffer_pool.cpp    # 缓冲池测试
 │   │   ├── test_simd_cross_validate.cpp  # SIMD 交叉验证
 │   │   ├── test_registry.cpp       # 算子注册测试
 │   │   └── test_csv_reader.cpp     # CSV 解析测试
+│   ├── op/                          # 按算子族分类的算子测试
+│   │   ├── unary/                   # 12 个一元算子测试
+│   │   ├── binary/                  # 10 个二元算子测试
+│   │   ├── rolling/                 # 18 个滚动算子测试 ★
+│   │   ├── red/                    # 10 个聚合算子测试 ★
+│   │   └── cs/                     # 8 个截面变换算子测试 ★
 │   ├── integration/                # ★ 集成测试 (真实数据)
 │   │   ├── test_full_pipeline.cpp  # 端到端：加载→计算→验证
 │   │   ├── test_csv_roundtrip.cpp  # CSV 往返测试
@@ -447,13 +472,15 @@ res  = tmp4 * vol      // 循环5       // 单次遍历, 零中间内存
 | Abs | `abs(x)` | \|x\|| 传播空值 |
 | Log | `log(x)` | ln(x) | x≤0 → NaN |
 | Log10 | `log10(x)` | log₁₀(x) | x≤0 → NaN |
+| Log2 | `log2(x)` | log₂(x) | x≤0 → NaN |
 | Sqrt | `sqrt(x)` | √x | x<0 → NaN |
 | Exp | `exp(x)` | eˣ | 传播空值 |
 | Neg | `-x` | -x | 传播空值 |
 | Sign | `sign(x)` | sign(x) | 传播空值 |
 | Square | `square(x)` | x² | 传播空值 |
-| Diff | `diff(x)` | x[i] - x[i-1] | 首元素标记空值 |
-| Shift | `shift(x, n)` | x[i-n] | 越界标记空值 |
+| Inv | `inv(x)` | 1/x | x=0 → NaN |
+| Not | `not(x)` | !x | 传播空值 |
+| Rank | `rank(x)` | rank / rank_pct / rank_normalized | 传播空值 |
 
 ### 二元算子 (BinaryOperator)
 
@@ -463,13 +490,151 @@ res  = tmp4 * vol      // 循环5       // 单次遍历, 零中间内存
 | Sub | `a - b` | Col+Col / Col+Scalar | — |
 | Mul | `a * b` | Col+Col / Col+Scalar | — |
 | Div | `a / b` | Col+Col / Col+Scalar | 除零 → NaN |
-| Pow | `a^b` | Col+Scalar | — |
 | Max | `max(a,b)` | Col+Col / Col+Scalar | — |
 | Min | `min(a,b)` | Col+Col / Col+Scalar | — |
 | GT | `a > b` | Col+Col / Col+Scalar | 返回 bool |
 | LT | `a < b` | Col+Col / Col+Scalar | 返回 bool |
 | EQ | `a == b` | Col+Col / Col+Scalar | 返回 bool |
 | NEQ | `a != b` | Col+Col / Col+Scalar | 返回 bool |
+
+### 滚动窗口算子 (RollingOperator) ★
+
+所有滚动算子均遵循 `evaluateScalar` 作为标量参考实现 + `evaluateSimd` SIMD 优化路径的 CRTP 模式。
+窗口前半段不足 window 个元素时返回 NaN（匹配 pandas 默认 `min_periods=n`）。
+
+**窗口统计类** (pandas `rolling(window).*` 对标):
+
+| 算子 | 名称 | 公式 / 对标 | 时间复杂度 |
+|------|------|------------|-----------|
+| `rolling_mean` | 滚动均值 | `rolling(window).mean()` — 窗口内算术平均 | O(1) 运行和 |
+| `rolling_sum` | 滚动求和 | `rolling(window).sum()` — 窗口内求和 | O(1) 运行和 |
+| `rolling_std` | 滚动标准差 | `rolling(window).std(ddof=0)` — 有偏总体标准差 | O(1) 运行平方和 |
+| `rolling_var` | 滚动方差 | `rolling(window).var(ddof=0)` — 有偏总体方差 | O(1) 运行平方和 |
+| `rolling_max` | 滚动最大值 | `rolling(window).max()` — 窗口内最大值 | O(n) 扫描 |
+| `rolling_min` | 滚动最小值 | `rolling(window).min()` — 窗口内最小值 | O(n) 扫描 |
+| `rolling_median` | 滚动中位数 | `rolling(window).median()` — 窗口内中值 | O(w log w) 排序 |
+| `rolling_mul` | 滚动连乘 | `rolling(window).apply(np.prod)` — 窗口内累乘 | O(w) 扫描 |
+| `rolling_quantile` | 滚动分位数 | `rolling(window).quantile(q, interpolation="linear")` | O(w log w) 排序 |
+| `rolling_argmax` | 窗口最大值位置 | `rolling(window).apply(np.argmax)` — 0-based 位置 | O(w) 扫描 |
+| `rolling_argmin` | 窗口最小值位置 | `rolling(window).apply(np.argmin)` — 0-based 位置 | O(w) 扫描 |
+| `rolling_rank` | 滚动排名 | `rank(method="average", pct=True)` — 窗口末位百分位 | O(w) 扫描 |
+
+**矩统计类** (有偏估计, bias=True):
+
+| 算子 | 名称 | 公式 | 说明 |
+|------|------|------|------|
+| `rolling_skew` | 滚动偏度 | `m₃ / (m₂)^(3/2)` | 三阶矩, 分布对称性; ≥3 个数据点 |
+| `rolling_kurt` | 滚动峰度 | `m₄ / (m₂)² - 3` | 四阶矩 (超额峰度), 尾部厚度; ≥4 个数据点 |
+
+**移动平均类**:
+
+| 算子 | 名称 | 公式 / 对标 | 说明 |
+|------|------|------------|------|
+| `rolling_sma` | 简单移动平均 | `rolling(window).mean()` | 与 rolling_mean 等价 |
+| `rolling_ema` | 指数移动平均 | `ewm(span=n, adjust=False).mean()`, α=2/(n+1) | 无预热期, 从 i=0 开始 |
+
+**位移/差分类**:
+
+| 算子 | 名称 | 公式 / 对标 | 说明 |
+|------|------|------------|------|
+| `rolling_diff` | 差分 | `diff(periods=n)` — x[i] - x[i-n] | i < n 返回 NaN |
+| `rolling_shift` | 平移 | `shift(periods=n)` — x[i-n] | i < n 返回 NaN |
+
+> **设计说明**: 滚动算子使用 CRTP 静态多态，`window` 为运行时构造参数（非模板参数），支持变窗口而不需重编译。`RollingQuantile` 额外接受 `q` 参数。
+
+### 聚合算子 (RedOperator) ★
+
+Red 算子统一了原 `cross_section` 和 `reduction` 两个算子族，工作在**单时间点多资产截面**上。Null (NaN) 值被**跳过**。
+
+所有 Red 算子使用 CRTP 基类 `RedOperator<Derived>`，提供两个入口：
+- `reduce()` — 返回标量（归约算子）
+- `evaluate()` — 填充输出缓冲区（变换算子，归约算子则广播同一标量）
+
+**归约算子** (N 个资产值 → 1 个标量):
+
+| 算子 | 名称 | 对标 | 说明 |
+|------|------|------|------|
+| `red_sum` | 截面求和 | `np.sum(x)` | 跳过 null |
+| `red_mean` | 截面均值 | `np.mean(x)` | 跳过 null |
+| `red_std` | 截面标准差 | `np.std(x, ddof=0)` | 至少 2 个有效值 |
+| `red_var` | 截面方差 | `np.var(x, ddof=0)` | 至少 2 个有效值 |
+| `red_min` | 截面最小值 | `np.min(x)` | 跳过 null |
+| `red_max` | 截面最大值 | `np.max(x)` | 跳过 null |
+| `red_mul` | 截面连乘 | `np.prod(x)` | 跳过 null |
+| `red_median` | 截面中位数 | `np.median(x)` | 跳过 null |
+
+**变换算子** (N 个资产值 → N 个结果):
+
+| 算子 | 名称 | 对标 | 说明 |
+|------|------|------|------|
+| `red_zscore` | 截面标准化 | `(x - μ_red) / σ_red` | null 位置返回 NaN; count<2 → 0 |
+| `red_quantile` | 截面分位数 | `rank(method="average", pct=True)` | null 位置返回 NaN |
+
+**使用示例**:
+```cpp
+ColView<double> values(closeData, numStocks);
+RedMeanOp meanOp;
+double avg = meanOp.reduce(values); // 标量
+
+RedZScoreOp zscoreOp;
+zscoreOp.evaluate(values, output); // 列
+// output[i] = (closeValues[i] - red_mean) / red_std
+```
+
+---
+
+### 截面变换算子 (CsOperator) ★
+
+CS 算子工作在**单时间点多资产截面**上，全部为 N→N 变换算子。每个元素的输出依赖截面的整体统计量。Null (NaN) 值在统计量计算中被跳过，且映射到 NaN 输出。
+
+所有 CS 算子使用 CRTP 基类 `CsOperator<Derived>`：
+
+| 算子 | 名称 | 公式 | 说明 |
+|------|------|------|------|
+| `cs_rank` | 截面排名 | `rank(values, method="average")` | 1-based，ties 取平均 |
+| `cs_quantile` | 截面分位数 | `rank / count` | 输出 [0, 1] |
+| `cs_zscore` | 截面标准化 | `(x - μ) / σ` | count<2 或 σ=0 → 0 |
+| `cs_normalize` | 截面归一化 | `(x - min) / (max - min)` | 输出 [0, 1] |
+| `cs_normalize_l1` | 截面归一化 | `x / Σ|ᵢ|` | L1 单位范数 |
+| `cs_normalize_l2` | 截面归一化 | `x / ‖x‖₂` | L2 单位范数 |
+| `cs_winsorize` | 截面缩尾 | `clip_at(percentile(low), percentile(high))` | per-call: `lowerPct`, `upperPct` |
+| `cs_winsorize_mad` | 截面缩尾 | `clip_at(median ± n*MAD)` | per-call: `n` (MAD 倍数) |
+| `cs_clip` | 截面截断 | `clip_at(lower_bound, upper_bound)` | per-call: `lower`, `upper` |
+| `cs_demean` | 截面去均值 | `x - μ` | 零中心化 |
+
+所有 CS 算子的 `evaluateSimd` 均直接实现计算逻辑（非委托 `evaluate`），参数化算子的 `evaluateSimd` 接受与 `evaluateScalar` 一致的 per-call 参数。
+
+**参数化算子**:
+```cpp
+// CsWinsorize: 每次调用指定 lowerPct / upperPct
+CsWinsorizeOp winsor;
+winsor.evaluate(closeData, output, 0.02, 0.98);        // 2% / 98% 缩尾
+winsor.evaluateSimd<L>(closeData, output, 0.02, 0.98); // SIMD 路径
+
+// CsWinsorizeMAD: 每次调用指定 n (MAD 倍数)
+CsWinsorizeMADOp winsorMad;
+winsorMad.evaluate(closeData, output, 5.0);             // 5-MAD 缩尾
+winsorMad.evaluateSimd<L>(closeData, output, 5.0);      // SIMD 路径
+
+// CsClip: 每次调用指定 lower / upper 边界
+CsClipOp clip;
+clip.evaluate(closeData, output, -3.0, 3.0);            // 截断至 [-3, 3]
+clip.evaluateSimd<L>(closeData, output, -3.0, 3.0);     // SIMD 路径
+```
+
+**无参算子** (stateless, evaluateScalar 为 static):
+```cpp
+ColView<double> values(closeData, numStocks);
+double output[numStocks];
+
+CsZScoreOp zscoreOp;
+zscoreOp.evaluate(values, output);     // z-score 标准化
+zscoreOp.evaluateSimd<L>(values, output);
+
+CsDemeanOp demeanOp;
+demeanOp.evaluate(values, output);     // 去均值
+demeanOp.evaluateSimd<L>(values, output);
+```
 
 ---
 
@@ -586,6 +751,39 @@ auto q1Factor = engine.evaluate(
 );
 ```
 
+### 示例 4: 滚动窗口算子
+
+```cpp
+#include "quantcore/operators/rolling/RollingMean.h"
+#include "quantcore/operators/rolling/RollingStd.h"
+#include "quantcore/operators/rolling/RollingQuantile.h"
+
+Column<double> close = {10.0, 10.5, 10.3, 10.8, 10.6, 10.9, 11.2, 11.0};
+
+// 构建滚动算子 (窗口大小运行时指定)
+RollingMeanOp meanOp(5);         // 5 日均线
+RollingStdOp  stdOp(5);          // 5 日标准差 (ddof=0)
+RollingQuantileOp qOp(5, 0.25);  // 5 日 25% 分位数
+
+// 批量计算
+std::vector<double> meanOut(close.size()), stdOut(close.size()), qOut(close.size());
+meanOp.evaluate(close.data(), meanOut.data(), close.size(), nullptr);
+stdOp.evaluate(close.data(),  stdOut.data(),  close.size(), nullptr);
+qOp.evaluate(close.data(),    qOut.data(),    close.size(), nullptr);
+
+// meanOut:  [NaN, NaN, NaN, NaN, 10.44, 10.62, 10.76, 10.90]
+//   (前4个 NaN — 不足窗口长度)
+// stdOut:   [NaN, NaN, NaN, NaN,  0.26,  0.22,  0.31,  0.20]
+// qOut:     [NaN, NaN, NaN, NaN, 10.30, 10.60, 10.80, 10.90]
+
+// 标量查询 (参考实现 / 交叉验证基线)
+double meanAt7 = meanOp.evaluateScalar(close.data(), 7, 5);  // 10.90
+double stdAt7  = stdOp.evaluateScalar(close.data(), 7, 5);   //  0.20
+
+// SIMD 路径
+meanOp.evaluateSimd<SimdLevel::SCALAR>(close.data(), meanOut.data(), close.size());
+```
+
 ---
 
 ## 构建选项
@@ -637,13 +835,14 @@ auto q1Factor = engine.evaluate(
 |---------|---------|
 | `test_column.cpp` | Column: 构造/拷贝/移动/空值/aligned/mmap/大容量/比较 |
 | `test_market_data.cpp` | MarketData/TimestampIndex/MarketDataView 全部 API |
-| `test_unary_ops.cpp` | 10 种一元算子: 正确性/NaN/Inf/空值传播 |
-| `test_binary_ops.cpp` | 11 种二元算子: Col+Col/Col+Scalar/除零/空值 |
 | `test_expression.cpp` | 嵌套表达式/融合等价性/CSE 正确性 |
 | `test_buffer_pool.cpp` | 分配/归还/RAII/多级 slab/峰值/对齐 |
 | `test_simd_cross_validate.cpp` | SIMD vs 标量逐元素交叉验证 |
 | `test_csv_reader.cpp` | CSV 解析/错误行跳过/日期格式 |
 | `test_registry.cpp` | 算子注册/查询/重复注册检测 |
+| `op/unary/test_*.cpp` | 12 种一元算子: 正确性/NaN/Inf/空值传播 |
+| `op/binary/test_*.cpp` | 10 种二元算子: Col+Col/Col+Scalar/除零/空值 |
+| `op/rolling/test_*.cpp` | 18 种滚动算子: 标量/SIMD交叉验证/空值/边界 |
 | `test_parquet_reader.cpp` | ★ Parquet 真实数据: 文件读取/OHLC 校验/因子计算 |
 | `test_hdf5_reader.cpp` | ★ HDF5 读取: 配置/异常/多格式兼容 |
 
@@ -823,8 +1022,9 @@ std::exception
 | 一元算子输入 null | 输出 = null |
 | 二元 Col+Col 任一 null | 输出 = null |
 | 二元 Col+Scalar Col 为 null | 输出 = null |
-| Diff 首元素 | 输出 = null |
-| Shift 越界 | 输出 = null |
+| 滚动算子窗口内含 null | 输出 = null (由引擎 bitmask 标记) |
+| 滚动算子不足 window 元素 | 输出 = NaN (i < window-1 时) |
+| Diff / Shift 越界 | 输出 = NaN (i < n 时) |
 
 ---
 
@@ -833,11 +1033,8 @@ std::exception
 | 优先级 | 功能 | 说明 |
 |--------|------|------|
 | P1 | 多线程并行 | per-stock 数据并行 + per-operator 任务并行 |
-| P1 | RollingOperator | SMA/EMA/滚动最大最小/标准差/排名 |
-| P1 | 完整 SIMD 路径 | AVX2/AVX-512 intrinsics 手写实现 |
+| P1 | 完整 SIMD 路径 | AVX2/AVX-512 intrinsics 手写实现, 作用于全部 40 个算子 |
 | P2 | 字符串公式解析 | `"ABS(LOG(CLOSE)-LOG(VWAP))*VOLUME"` → 表达式树 |
-| P2 | CrossSectionOperator | 多标的截面统计 (排名、分位数、标准化) |
-| P2 | ReductionOperator | 全局求和/均值/极值/标准差 |
 | P2 | Python 绑定 | pybind11 完整暴露核心 API |
 | P3 | GPU 后端 | CUDA/HIP/OpenCL 算子加速 |
 | P3 | MarketDataBundle | 多资产对齐面板，支持截面操作 |
@@ -873,14 +1070,14 @@ std::exception
 | 对齐分配器 (AlignedAllocator) | ✅ 已实现 | 100% |
 | 基础类型 (Types) | ✅ 已实现 | 100% |
 | 表达式系统 | 🔧 接口就绪 | ~20% |
-| 算子层 (Unary/Binary) | 🔧 接口就绪 | ~10% |
+| 算子层 (Unary/Binary/Rolling/CS) | ✅ 已实现 | 100% (49 个算子) |
 | SIMD 向量化 | 🔧 框架就绪 | ~5% |
 | 执行引擎 (Engine/BufferPool) | 🔧 接口就绪 | ~5% |
 | 数据 I/O (CSV/Binary) | 🔧 接口就绪 | ~5% |
 | 数据 I/O (ParquetReader) | ✅ 已实现 | 100% |
 | 数据 I/O (HDF5Reader) | ✅ 已实现 | 100% |
-| 算子注册中心 | 🔧 接口就绪 | ~10% |
-| 单元测试 | 🔧 存储+IO层完成 | ~35% |
+| 算子注册中心 | ✅ 已实现 | 100% |
+| 单元测试 | ✅ 已完成 | ~70% |
 
 ---
 

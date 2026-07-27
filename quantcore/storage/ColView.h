@@ -32,6 +32,7 @@ public:
         : data_(data + start)
         , nullMask_(nullptr)
         , size_(end > start ? end - start : 0)
+        , nullMaskOffset_(0)
     {}
 
     /// View an entire Column.
@@ -39,20 +40,26 @@ public:
         : data_(col.data())
         , nullMask_(col.hasNullMask() ? col.nullMaskData() : nullptr)
         , size_(col.size())
+        , nullMaskOffset_(0)
     {}
 
     /// View a sub-range [start, end) of a Column.
+    /// The null-mask bit for view position i corresponds to original
+    /// Column position (start + i).
     ColView(const Column<T>& col, std::size_t start, std::size_t end)
         : data_(col.data() + start)
         , nullMask_(col.hasNullMask() ? col.nullMaskData() : nullptr)
         , size_(end > start ? end - start : 0)
+        , nullMaskOffset_(start)
     {}
 
     /// Construct from raw pointer + size + optional null mask.
+    /// The null mask is indexed from 0 (aligned with data[0]).
     ColView(const T* data, std::size_t size, const uint64_t* nullMask = nullptr)
         : data_(data)
         , nullMask_(nullMask)
         , size_(size)
+        , nullMaskOffset_(0)
     {}
 
     // Default copy / move
@@ -81,7 +88,8 @@ public:
 
     bool isNull(std::size_t i) const {
         if (!nullMask_) return false;
-        return (nullMask_[i / 64] >> (i % 64)) & uint64_t{1};
+        std::size_t pos = nullMaskOffset_ + i;
+        return (nullMask_[pos / 64] >> (pos % 64)) & uint64_t{1};
     }
 
     // ============================================================
@@ -90,11 +98,14 @@ public:
 
     /// Create a sub-view of [start, end) within the current view.
     /// start and end are relative to this view, not the original column.
+    /// The null-mask offset propagates so that isNull(i) in the sub-view
+    /// checks the correct bit in the original Column's null mask.
     ColView subView(std::size_t start, std::size_t end) const {
         ColView result;
-        result.data_     = data_ + start;
-        result.nullMask_ = nullMask_;
-        result.size_     = (end > start ? end - start : 0);
+        result.data_           = data_ + start;
+        result.nullMask_       = nullMask_;
+        result.size_           = (end > start ? end - start : 0);
+        result.nullMaskOffset_ = nullMaskOffset_ + start;
         return result;
     }
 
@@ -117,9 +128,10 @@ public:
     const T* end()   const noexcept { return data_ + size_; }
 
 private:
-    const T*        data_     = nullptr;
-    const uint64_t* nullMask_ = nullptr;
-    std::size_t     size_     = 0;
+    const T*        data_           = nullptr;
+    const uint64_t* nullMask_       = nullptr;
+    std::size_t     size_           = 0;
+    std::size_t     nullMaskOffset_ = 0;  // bit offset into nullMask_ (for sub-views)
 };
 
 // ============================================================

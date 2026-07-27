@@ -450,33 +450,16 @@ TEST_F(ColumnTest, ColViewNullMaskForwarding) {
 
 TEST_F(ColumnTest, ColViewNullMaskAfterSlice) {
     Column<double> col(10);
-    col.setNull(0);   // in first uint64
+    col.setNull(0);   // position 0 is null
     col.setNull(65);  // in second uint64
 
     // Take a sub-view starting after element 0
     ColView<double> view(col, 1, 10);
     EXPECT_TRUE(view.hasNullMask());
-    EXPECT_FALSE(view.isNull(0));   // was col[1], no null
-    // col[65] → view offset 64
-    // But the null mask is bit-indexed from the original column's perspective
-    // isNull(i) checks nullMask_ at bit position (start_ + i) for full-view
-    // but for subView, the bit index is different...
-    //
-    // IMPORTANT: Our current ColView implementation stores the raw nullMask_
-    // pointer but NOT the start offset for the null mask.  The null mask
-    // bit index corresponds to the original Column's index, not the view's.
-    //
-    // This is a known limitation: ColView with non-zero start will have
-    // incorrect null mask bit positions when using isNull().
-    //
-    // To fix this properly, we'd need to either store the start offset and
-    // adjust the bit position, or encode differently.  For the initial
-    // implementation, ColView isNull with non-zero start is documented as
-    // having this constraint.
-    //
-    // For now, we test that nullMask_ pointer is non-null and that
-    // hasNullMask() works correctly.
-    SUCCEED();  // Placeholder — null mask + slice to be refined
+    EXPECT_FALSE(view.isNull(0));  // col[1] — was not set to null
+    EXPECT_FALSE(view.isNull(1));  // col[2]
+    EXPECT_FALSE(view.isNull(3));  // col[4]
+    EXPECT_FALSE(view.isNull(8));  // col[9]
 }
 
 // ============================================================
