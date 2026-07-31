@@ -1,0 +1,6 @@
+name,expression,description
+alpha_0001,"close / rolling_shift(close, 20) - 1",20-day price return (momentum)
+alpha_0002,"rolling_mean(close, 5) / rolling_mean(close, 20) - 1",5-day vs 20-day moving average deviation
+alpha_0003,"log(close) - log(rolling_shift(close, 1))",1-day log return
+alpha_0004,"abs(close - vwap) / vwap",absolute VWAP deviation ratio
+alpha_0005,"rolling_std(log(close) - log(rolling_shift(close, 1)), 20)",20-day rolling volatility of daily log returns
