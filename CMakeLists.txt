@@ -20,6 +20,7 @@ option(QUANTCORE_ENABLE_HDF5      "Enable HDF5 I/O support"  ON)
 include(cmake/CompilerSettings.cmake)
 
 add_subdirectory(quantcore)
+add_subdirectory(factors)
 
 if(QUANTCORE_BUILD_TESTS)
     enable_testing()
@@ -33,3 +34,41 @@ endif()
 if(QUANTCORE_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
+
+add_subdirectory(tools)
+
+# ============================================================
+# Install & packaging
+# ============================================================
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Install the exported targets file
+install(EXPORT QuantCoreTargets
+    FILE QuantCoreTargets.cmake
+    NAMESPACE quantcore::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/QuantCore
+)
+
+# Generate the version file for find_package(QuantCore VERSION ...)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/QuantCoreConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuantCoreConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/QuantCore
+)
+
+# Generate the main config file from template
+configure_package_config_file(
+    cmake/QuantCoreConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/QuantCoreConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/QuantCore
+)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuantCoreConfig.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/QuantCore
+)

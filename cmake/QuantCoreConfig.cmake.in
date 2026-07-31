@@ -1,0 +1,16 @@
+# QuantCoreConfig.cmake — CMake config file for find_package(QuantCore)
+#
+# Usage in consuming projects:
+#   find_package(QuantCore REQUIRED)
+#   target_link_libraries(my_app PRIVATE quantcore::quantcore quantcore::quantcorefactors)
+
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/QuantCoreTargets.cmake")
+
+# Propagate SIMD feature flags to consumers
+set(QUANTCORE_HAS_AVX512 @QUANTCORE_ENABLE_AVX512@)
+set(QUANTCORE_HAS_AVX2   @QUANTCORE_ENABLE_AVX2@)
+set(QUANTCORE_HAS_SSE42  @QUANTCORE_ENABLE_SSE42@)
+
+check_required_components(QuantCore)

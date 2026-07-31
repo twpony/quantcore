@@ -1,29 +1,23 @@
-// RollingExpr.h — expression node for rolling-window operators
+// RedExpr.h — expression node for cross-section reduction operators
 // Phase: 一期必实现
 //
-// RollingExpr applies a rolling-window operator (SMA, EMA, MAX, MIN,
-// STD, SUM, ...) to its child expression.  The window size is stored
-// as a runtime value so it can vary without recompilation.
+// RedExpr applies a cross-section reduction operator (SUM, MEAN, STD, ZSCORE,
+// QUANTILE, ...) to its child expression.  Red operators are "fusion boundaries"
+// — their child must be fully materialized before the cross-sectional computation
+// can run, because every output element may depend on every input element.
 //
-// RollingExpr is a "fusion boundary" — its child must be fully
-// materialized before the rolling window can be computed, because
-// output[i] depends on input[i-window..i].  The FusedLoopGenerator
-// (Phase 4) will treat RollingExpr as a boundary between fused groups.
+// Dispatch is via OperatorRegistry::invokeRed, which uses the same type-erased
+// function pointer pattern as invokeUnary / invokeBinary.
 //
-// Dispatch is via OperatorRegistry::invokeRolling, which was extended
-// in Phase 1 to support all rolling operators except RollingQuantileOp
-// (which requires an additional `q` parameter — to be handled in a
-// future phase).
+// extraParams_ stores per-call parameters for operators like RED_QUANTILE(q).
+// For stateless operators the vector is empty and ignored.
 //
-// Boundary convention (from RollingOperator CRTP base):
-//   - Window operators: first (window-1) elements are NaN.
-//   - Lag operators (Diff, Shift): first `window` elements are NaN.
-//   - Rolling operators mark invalid positions with NaN, not via null
-//     bitmask — so evaluate() returns nullptr for the null mask.
+// Thread safety: evaluate() is NOT thread-safe.  Use clone() to create
+// independent copies for concurrent evaluation.
 #pragma once
 
 #include <memory>
-#include <stdexcept>
+#include <vector>
 
 #include "quantcore/core/Types.h"
 #include "quantcore/engine/BufferPool.h"
@@ -33,20 +27,18 @@
 
 namespace quantcore {
 
-class RollingExpr : public ExprNode {
+class RedExpr : public ExprNode {
 public:
-    RollingExpr(RollingOpCode op, std::size_t window,
-                std::unique_ptr<ExprNode> child,
-                std::vector<double> extraParams = {})
-        : op_(op), window_(window), child_(std::move(child)),
-          extraParams_(std::move(extraParams)) {}
+    RedExpr(RedOpCode op,
+            std::unique_ptr<ExprNode> child,
+            std::vector<double> extraParams = {})
+        : op_(op), child_(std::move(child)), extraParams_(std::move(extraParams)) {}
 
     // ============================================================
     // Accessors
     // ============================================================
 
-    RollingOpCode opCode() const noexcept { return op_; }
-    std::size_t window() const noexcept { return window_; }
+    RedOpCode opCode() const noexcept { return op_; }
     const ExprNode* child() const noexcept { return child_.get(); }
     const std::vector<double>& extraParams() const noexcept { return extraParams_; }
 
@@ -55,21 +47,25 @@ public:
     // ============================================================
 
     std::unique_ptr<ExprNode> clone() const override {
-        return std::make_unique<RollingExpr>(op_, window_, child_->clone(),
-                                              extraParams_);
+        return std::make_unique<RedExpr>(op_, child_->clone(), extraParams_);
     }
 
     const uint64_t* evaluate(const MarketData& md,
                              double* output,
                              std::size_t n) const override {
+        // 1. Materialize child expression into a temporary buffer.
+        //    Red ops need the full input array before computing.
         childBuf_.resize(n);
         const uint64_t* childNull = child_->evaluate(md, childBuf_.data(), n);
+
+        // 2. Build a ColView wrapping the child's result.
         ColView<double> inputView(childBuf_.data(), n, childNull);
 
+        // 3. Dispatch via OperatorRegistry::invokeRed.
         auto& reg = OperatorRegistry::instance();
-        reg.invokeRolling(op_, inputView, output, window_, extraParams_);
+        reg.invokeRed(op_, inputView, output, extraParams_);
 
-        return nullptr;
+        return childNull;
     }
 
     const uint64_t* evaluate(const MarketData& md,
@@ -83,18 +79,27 @@ public:
         ColView<double> inputView(childHandle.data(), n, childNull);
 
         auto& reg = OperatorRegistry::instance();
-        reg.invokeRolling(op_, inputView, output, window_, extraParams_);
+        reg.invokeRed(op_, inputView, output, extraParams_);
 
-        return nullptr;
+        return childNull;
     }
+
+    // ============================================================
+    // Debugging
+    // ============================================================
 
     void dump(std::ostream& os, int indent = 0) const override {
         os << std::string(indent, ' ')
-           << rollingOpName(op_) << "(" << window_;
+           << "RED_" << redOpName(op_);
         if (!extraParams_.empty()) {
-            for (auto p : extraParams_) os << ", " << p;
+            os << "(";
+            for (std::size_t i = 0; i < extraParams_.size(); ++i) {
+                if (i > 0) os << ", ";
+                os << extraParams_[i];
+            }
+            os << ")";
         }
-        os << ")\n";
+        os << "\n";
         child_->dump(os, indent + 4);
     }
 
@@ -102,11 +107,12 @@ public:
     std::size_t maxDepth()  const override { return 1 + child_->maxDepth(); }
 
 private:
-    RollingOpCode op_;
-    std::size_t window_;
+    RedOpCode op_;
     std::unique_ptr<ExprNode> child_;
     std::vector<double> extraParams_;
 
+    // Mutable buffer for the materialized child result.
+    // NOT thread-safe — use clone() for concurrent evaluation.
     mutable std::vector<double> childBuf_;
 };
 

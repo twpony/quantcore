@@ -14,6 +14,8 @@
 
 #include "quantcore/registry/OperatorRegistry.h"
 
+#include "quantcore/storage/ColView.h"
+
 // -- unary operator headers (for dispatch registration) --
 #include "quantcore/operators/unary/Abs.h"
 #include "quantcore/operators/unary/Exp.h"
@@ -47,6 +49,8 @@
 #include "quantcore/operators/rolling/RollingStd.h"
 #include "quantcore/operators/rolling/RollingSum.h"
 #include "quantcore/operators/rolling/RollingVar.h"
+#include "quantcore/operators/rolling/RollingCorr.h"
+#include "quantcore/operators/rolling/RollingCov.h"
 
 // -- red operator headers (for name registration) --
 #include "quantcore/operators/red/RedMax.h"
@@ -127,23 +131,55 @@ OperatorRegistry& OperatorRegistry::instance() {
 
         // -- Rolling operators --
         registry.registerRolling<RollingSmaOp>     ("rolling_sma",      RollingOpCode::ROLLING_SMA);
+        registry.registerRollingDispatch<RollingSmaOp>(RollingOpCode::ROLLING_SMA);
         registry.registerRolling<RollingEmaOp>     ("rolling_ema",      RollingOpCode::ROLLING_EMA);
+        registry.registerRollingDispatch<RollingEmaOp>(RollingOpCode::ROLLING_EMA);
         registry.registerRolling<RollingMaxOp>     ("rolling_max",      RollingOpCode::ROLLING_MAX);
+        registry.registerRollingDispatch<RollingMaxOp>(RollingOpCode::ROLLING_MAX);
         registry.registerRolling<RollingMinOp>     ("rolling_min",      RollingOpCode::ROLLING_MIN);
+        registry.registerRollingDispatch<RollingMinOp>(RollingOpCode::ROLLING_MIN);
         registry.registerRolling<RollingStdOp>     ("rolling_std",      RollingOpCode::ROLLING_STD);
+        registry.registerRollingDispatch<RollingStdOp>(RollingOpCode::ROLLING_STD);
         registry.registerRolling<RollingSumOp>     ("rolling_sum",      RollingOpCode::ROLLING_SUM);
+        registry.registerRollingDispatch<RollingSumOp>(RollingOpCode::ROLLING_SUM);
         registry.registerRolling<RollingRankOp>    ("rolling_rank",     RollingOpCode::ROLLING_RANK);
+        registry.registerRollingDispatch<RollingRankOp>(RollingOpCode::ROLLING_RANK);
         registry.registerRolling<RollingDiffOp>    ("rolling_diff",     RollingOpCode::ROLLING_DIFF);
+        registry.registerRollingDispatch<RollingDiffOp>(RollingOpCode::ROLLING_DIFF);
         registry.registerRolling<RollingShiftOp>   ("rolling_shift",    RollingOpCode::ROLLING_SHIFT);
+        registry.registerRollingDispatch<RollingShiftOp>(RollingOpCode::ROLLING_SHIFT);
         registry.registerRolling<RollingMeanOp>    ("rolling_mean",     RollingOpCode::ROLLING_MEAN);
+        registry.registerRollingDispatch<RollingMeanOp>(RollingOpCode::ROLLING_MEAN);
         registry.registerRolling<RollingVarOp>     ("rolling_var",      RollingOpCode::ROLLING_VAR);
+        registry.registerRollingDispatch<RollingVarOp>(RollingOpCode::ROLLING_VAR);
         registry.registerRolling<RollingMedianOp>  ("rolling_median",   RollingOpCode::ROLLING_MEDIAN);
+        registry.registerRollingDispatch<RollingMedianOp>(RollingOpCode::ROLLING_MEDIAN);
         registry.registerRolling<RollingMulOp>     ("rolling_mul",      RollingOpCode::ROLLING_MUL);
+        registry.registerRollingDispatch<RollingMulOp>(RollingOpCode::ROLLING_MUL);
         registry.registerRolling<RollingArgMaxOp>  ("rolling_argmax",   RollingOpCode::ROLLING_ARGMAX);
+        registry.registerRollingDispatch<RollingArgMaxOp>(RollingOpCode::ROLLING_ARGMAX);
         registry.registerRolling<RollingArgMinOp>  ("rolling_argmin",   RollingOpCode::ROLLING_ARGMIN);
+        registry.registerRollingDispatch<RollingArgMinOp>(RollingOpCode::ROLLING_ARGMIN);
         registry.registerRolling<RollingKurtOp>    ("rolling_kurt",     RollingOpCode::ROLLING_KURT);
+        registry.registerRollingDispatch<RollingKurtOp>(RollingOpCode::ROLLING_KURT);
         registry.registerRolling<RollingSkewOp>    ("rolling_skew",     RollingOpCode::ROLLING_SKEW);
+        registry.registerRollingDispatch<RollingSkewOp>(RollingOpCode::ROLLING_SKEW);
         registry.registerRolling<RollingQuantileOp>("rolling_quantile", RollingOpCode::ROLLING_QUANTILE);
+        // RollingQuantileOp dispatch — requires `q` parameter from extraParams
+        registry.registerRollingDispatchRaw(RollingOpCode::ROLLING_QUANTILE,
+            [](ColView<double> input, double* output, std::size_t window,
+               const std::vector<double>& params) {
+                double q = params.empty() ? 0.5 : params.at(0);
+                RollingQuantileOp op(window, q);
+                op.evaluate(input, output);
+            });
+
+        // -- Binary rolling operators --
+        registry.registerRolling<RollingCorrOp>("rolling_corr", RollingOpCode::ROLLING_CORR);
+        registry.registerBinaryRollingDispatch<RollingCorrOp>(RollingOpCode::ROLLING_CORR);
+
+        registry.registerRolling<RollingCovOp>("rolling_cov", RollingOpCode::ROLLING_COV);
+        registry.registerBinaryRollingDispatch<RollingCovOp>(RollingOpCode::ROLLING_COV);
 
         // -- Red operators --
         registry.registerRed<RedSumOp>     ("red_sum",      RedOpCode::RED_SUM);
@@ -157,6 +193,18 @@ OperatorRegistry& OperatorRegistry::instance() {
         registry.registerRed<RedZScoreOp>  ("red_zscore",   RedOpCode::RED_ZSCORE);
         registry.registerRed<RedQuantileOp>("red_quantile", RedOpCode::RED_QUANTILE);
 
+        // -- Red operators dispatch --
+        registry.registerRedDispatch<RedSumOp>     (RedOpCode::RED_SUM);
+        registry.registerRedDispatch<RedMeanOp>    (RedOpCode::RED_MEAN);
+        registry.registerRedDispatch<RedStdOp>     (RedOpCode::RED_STD);
+        registry.registerRedDispatch<RedVarOp>     (RedOpCode::RED_VAR);
+        registry.registerRedDispatch<RedMinOp>     (RedOpCode::RED_MIN);
+        registry.registerRedDispatch<RedMaxOp>     (RedOpCode::RED_MAX);
+        registry.registerRedDispatch<RedMulOp>     (RedOpCode::RED_MUL);
+        registry.registerRedDispatch<RedMedianOp>  (RedOpCode::RED_MEDIAN);
+        registry.registerRedDispatch<RedZScoreOp>  (RedOpCode::RED_ZSCORE);
+        registry.registerRedDispatch<RedQuantileOp>(RedOpCode::RED_QUANTILE);
+
         // -- CS operators --
         registry.registerCs<CsRankOp>      ("cs_rank",       CsOpCode::CS_RANK);
         registry.registerCs<CsQuantileOp>  ("cs_quantile",   CsOpCode::CS_QUANTILE);
@@ -168,6 +216,43 @@ OperatorRegistry& OperatorRegistry::instance() {
         registry.registerCs<CsWinsorizeMADOp> ("cs_winsorize_mad", CsOpCode::CS_WINSORIZE_MAD);
         registry.registerCs<CsClipOp>         ("cs_clip",          CsOpCode::CS_CLIP);
         registry.registerCs<CsDemeanOp>    ("cs_demean",     CsOpCode::CS_DEMEAN);
+
+        // -- CS operators dispatch (stateless) --
+        registry.registerCsDispatch<CsRankOp>        (CsOpCode::CS_RANK);
+        registry.registerCsDispatch<CsQuantileOp>    (CsOpCode::CS_QUANTILE);
+        registry.registerCsDispatch<CsZScoreOp>      (CsOpCode::CS_ZSCORE);
+        registry.registerCsDispatch<CsNormalizeOp>   (CsOpCode::CS_NORMALIZE);
+        registry.registerCsDispatch<CsNormalizeL1Op> (CsOpCode::CS_NORMALIZE_L1);
+        registry.registerCsDispatch<CsNormalizeL2Op> (CsOpCode::CS_NORMALIZE_L2);
+        registry.registerCsDispatch<CsDemeanOp>      (CsOpCode::CS_DEMEAN);
+
+        // -- CS operators dispatch (parameterized — hand-written lambdas) --
+        // CS_WINSORIZE: params = {lowerPct, upperPct}
+        registry.registerCsDispatchRaw(CsOpCode::CS_WINSORIZE,
+            [](ColView<double> input, double* output,
+               const std::vector<double>& params) {
+                CsWinsorizeOp op;
+                op.evaluateSimd<SimdLevel::SCALAR>(
+                    input, output, params.at(0), params.at(1));
+            });
+
+        // CS_WINSORIZE_MAD: params = {n}
+        registry.registerCsDispatchRaw(CsOpCode::CS_WINSORIZE_MAD,
+            [](ColView<double> input, double* output,
+               const std::vector<double>& params) {
+                CsWinsorizeMADOp op;
+                op.evaluateSimd<SimdLevel::SCALAR>(
+                    input, output, params.at(0));
+            });
+
+        // CS_CLIP: params = {lower, upper}
+        registry.registerCsDispatchRaw(CsOpCode::CS_CLIP,
+            [](ColView<double> input, double* output,
+               const std::vector<double>& params) {
+                CsClipOp op;
+                op.evaluateSimd<SimdLevel::SCALAR>(
+                    input, output, params.at(0), params.at(1));
+            });
     }
     return registry;
 }
@@ -193,6 +278,8 @@ const char* const kUnaryOpNames[] = {
     "rank",             // RANK
     "rank_pct",         // RANK_PCT
     "rank_normalized",  // RANK_NORMALIZED
+    "unary_custom_0", "unary_custom_1", "unary_custom_2", "unary_custom_3",
+    "unary_custom_4", "unary_custom_5", "unary_custom_6", "unary_custom_7",
 };
 
 const char* const kBinaryOpNames[] = {
@@ -206,6 +293,7 @@ const char* const kBinaryOpNames[] = {
     "lt",   // LT
     "eq",   // EQ
     "neq",  // NEQ
+    "binary_custom_0", "binary_custom_1", "binary_custom_2", "binary_custom_3",
 };
 
 const char* const kRollingOpNames[] = {
@@ -227,6 +315,8 @@ const char* const kRollingOpNames[] = {
     "rolling_kurt",     // ROLLING_KURT
     "rolling_skew",     // ROLLING_SKEW
     "rolling_quantile", // ROLLING_QUANTILE
+    "rolling_corr",     // ROLLING_CORR
+    "rolling_cov",      // ROLLING_COV
 };
 
 const char* const kRedOpNames[] = {
@@ -272,13 +362,15 @@ const char* fieldName(Field field) {
 
 const char* unaryOpName(UnaryOpCode op) {
     auto idx = static_cast<std::size_t>(op);
-    if (idx >= static_cast<std::size_t>(UnaryOpCode::kCount)) return "unknown";
+    constexpr std::size_t N = sizeof(kUnaryOpNames) / sizeof(kUnaryOpNames[0]);
+    if (idx >= N) return "unknown";
     return kUnaryOpNames[idx];
 }
 
 const char* binaryOpName(BinaryOpCode op) {
     auto idx = static_cast<std::size_t>(op);
-    if (idx >= static_cast<std::size_t>(BinaryOpCode::kCount)) return "unknown";
+    constexpr std::size_t N = sizeof(kBinaryOpNames) / sizeof(kBinaryOpNames[0]);
+    if (idx >= N) return "unknown";
     return kBinaryOpNames[idx];
 }
 
@@ -419,6 +511,18 @@ void OperatorRegistry::invokeUnary(UnaryOpCode code,
                                     const uint64_t* nullMask) const
 {
     auto idx = static_cast<std::size_t>(code);
+    // Check custom dispatch first
+    if (code >= UnaryOpCode::CUSTOM_0) {
+        auto customIdx = idx - static_cast<std::size_t>(UnaryOpCode::CUSTOM_0);
+        if (customIdx >= customUnaryDispatch_.size()
+            || !customUnaryDispatch_[customIdx]) {
+            throw std::runtime_error(
+                "Unary operator not registered for dispatch: "
+                + std::string(unaryOpName(code)));
+        }
+        customUnaryDispatch_[customIdx](input, output, n, nullMask);
+        return;
+    }
     if (idx >= unaryDispatch_.size() || unaryDispatch_[idx] == nullptr) {
         throw std::runtime_error(
             "Unary operator not registered for dispatch: "
@@ -449,12 +553,208 @@ void OperatorRegistry::invokeBinary(BinaryOpCode code,
                                      const uint64_t* nullMask) const
 {
     auto idx = static_cast<std::size_t>(code);
+    // Check custom dispatch first
+    if (code >= BinaryOpCode::CUSTOM_0) {
+        auto customIdx = idx - static_cast<std::size_t>(BinaryOpCode::CUSTOM_0);
+        if (customIdx >= customBinaryDispatch_.size()
+            || !customBinaryDispatch_[customIdx]) {
+            throw std::runtime_error(
+                "Binary operator not registered for dispatch: "
+                + std::string(binaryOpName(code)));
+        }
+        customBinaryDispatch_[customIdx](lhs, rhs, output, n, nullMask);
+        return;
+    }
     if (idx >= binaryDispatch_.size() || binaryDispatch_[idx] == nullptr) {
         throw std::runtime_error(
             "Binary operator not registered for dispatch: "
             + std::string(binaryOpName(code)));
     }
     binaryDispatch_[idx](lhs, rhs, output, n, nullMask);
+}
+
+// ============================================================
+// Rolling operator dispatch
+// ============================================================
+
+void OperatorRegistry::invokeRolling(RollingOpCode code,
+                                     ColView<double> input,
+                                     double* output,
+                                     std::size_t window,
+                                     const std::vector<double>& extraParams) const
+{
+    auto idx = static_cast<std::size_t>(code);
+    if (idx >= rollingDispatch_.size() || rollingDispatch_[idx] == nullptr) {
+        throw std::runtime_error(
+            "Rolling operator not registered for dispatch: "
+            + std::string(rollingOpName(code)));
+    }
+    rollingDispatch_[idx](input, output, window, extraParams);
+}
+
+// ============================================================
+// Binary rolling operator dispatch
+// ============================================================
+
+void OperatorRegistry::invokeBinaryRolling(RollingOpCode code,
+                                           ColView<double> x,
+                                           ColView<double> y,
+                                           double* output,
+                                           std::size_t window,
+                                           const std::vector<double>& extraParams) const
+{
+    auto idx = static_cast<std::size_t>(code);
+    if (idx >= binaryRollingDispatch_.size() || binaryRollingDispatch_[idx] == nullptr) {
+        throw std::runtime_error(
+            "Binary rolling operator not registered for dispatch: "
+            + std::string(rollingOpName(code)));
+    }
+    binaryRollingDispatch_[idx](x, y, output, window, extraParams);
+}
+
+// ============================================================
+// Red operator dispatch
+// ============================================================
+
+void OperatorRegistry::invokeRed(RedOpCode code,
+                                 ColView<double> values,
+                                 double* output,
+                                 const std::vector<double>& extraParams) const
+{
+    auto idx = static_cast<std::size_t>(code);
+    if (idx >= redDispatch_.size() || redDispatch_[idx] == nullptr) {
+        throw std::runtime_error(
+            "Red operator not registered for dispatch: "
+            + std::string(redOpName(code)));
+    }
+    redDispatch_[idx](values, output, extraParams);
+}
+
+// ============================================================
+// CS operator dispatch
+// ============================================================
+
+void OperatorRegistry::invokeCs(CsOpCode code,
+                                ColView<double> values,
+                                double* output,
+                                const std::vector<double>& extraParams) const
+{
+    auto idx = static_cast<std::size_t>(code);
+    if (idx >= csDispatch_.size() || csDispatch_[idx] == nullptr) {
+        throw std::runtime_error(
+            "CS operator not registered for dispatch: "
+            + std::string(csOpName(code)));
+    }
+    csDispatch_[idx](values, output, extraParams);
+}
+
+// ============================================================
+// Custom operator registration
+// ============================================================
+
+void OperatorRegistry::registerCustomUnary(const std::string& name,
+                                            UnaryOpCode code,
+                                            UnaryScalarFn scalarFn) {
+    auto idx = static_cast<std::size_t>(code);
+    auto customIdx = idx - static_cast<std::size_t>(UnaryOpCode::CUSTOM_0);
+
+    // Register name → code mapping
+    unaryRegistry_[name] = code;
+
+    // Register dispatch function (capturing lambda via std::function)
+    if (customIdx >= customUnaryDispatch_.size()) {
+        customUnaryDispatch_.resize(customIdx + 1);
+    }
+    customUnaryDispatch_[customIdx] =
+        [scalarFn](const Operand& input, double* output,
+                   std::size_t n, const uint64_t* nullMask) {
+        if (input.kind() == Operand::Kind::kColumn) {
+            const double* col = input.column();
+            if (nullMask == nullptr) {
+                for (std::size_t i = 0; i < n; ++i) output[i] = scalarFn(col[i]);
+            } else {
+                for (std::size_t i = 0; i < n; ++i) {
+                    output[i] = ((nullMask[i/64] >> (i%64)) & 1)
+                        ? 0.0 : scalarFn(col[i]);
+                }
+            }
+        } else {
+            double sv = scalarFn(input.scalar());
+            if (nullMask == nullptr) {
+                for (std::size_t i = 0; i < n; ++i) output[i] = sv;
+            } else {
+                for (std::size_t i = 0; i < n; ++i) {
+                    output[i] = ((nullMask[i/64] >> (i%64)) & 1) ? 0.0 : sv;
+                }
+            }
+        }
+    };
+
+    // Register scalar fn for fused loops
+    if (idx >= unaryScalar_.size()) {
+        unaryScalar_.resize(idx + 1);
+    }
+    unaryScalar_[idx] = scalarFn;
+}
+
+void OperatorRegistry::registerCustomBinary(const std::string& name,
+                                             BinaryOpCode code,
+                                             BinaryScalarFn scalarFn) {
+    auto idx = static_cast<std::size_t>(code);
+    auto customIdx = idx - static_cast<std::size_t>(BinaryOpCode::CUSTOM_0);
+
+    // Register name → code mapping
+    binaryRegistry_[name] = code;
+
+    // Register dispatch function (capturing lambda via std::function)
+    if (customIdx >= customBinaryDispatch_.size()) {
+        customBinaryDispatch_.resize(customIdx + 1);
+    }
+    customBinaryDispatch_[customIdx] =
+        [scalarFn](const Operand& lhs, const Operand& rhs,
+                   double* output, std::size_t n,
+                   const uint64_t* nullMask) {
+        auto kindL = lhs.kind(), kindR = rhs.kind();
+        if (kindL == Operand::Kind::kColumn && kindR == Operand::Kind::kColumn) {
+            const double* l = lhs.column(); const double* r = rhs.column();
+            if (nullMask) {
+                for (size_t i = 0; i < n; ++i)
+                    output[i] = ((nullMask[i/64]>>(i%64))&1) ? 0.0 : scalarFn(l[i],r[i]);
+            } else {
+                for (size_t i = 0; i < n; ++i) output[i] = scalarFn(l[i], r[i]);
+            }
+        } else if (kindL == Operand::Kind::kColumn) {
+            const double* l = lhs.column(); double rv = rhs.scalar();
+            if (nullMask) {
+                for (size_t i = 0; i < n; ++i)
+                    output[i] = ((nullMask[i/64]>>(i%64))&1) ? 0.0 : scalarFn(l[i],rv);
+            } else {
+                for (size_t i = 0; i < n; ++i) output[i] = scalarFn(l[i], rv);
+            }
+        } else if (kindR == Operand::Kind::kColumn) {
+            double lv = lhs.scalar(); const double* r = rhs.column();
+            if (nullMask) {
+                for (size_t i = 0; i < n; ++i)
+                    output[i] = ((nullMask[i/64]>>(i%64))&1) ? 0.0 : scalarFn(lv,r[i]);
+            } else {
+                for (size_t i = 0; i < n; ++i) output[i] = scalarFn(lv, r[i]);
+            }
+        } else {
+            double sv = scalarFn(lhs.scalar(), rhs.scalar());
+            if (nullMask) {
+                for (size_t i = 0; i < n; ++i)
+                    output[i] = ((nullMask[i/64]>>(i%64))&1) ? 0.0 : sv;
+            } else {
+                for (size_t i = 0; i < n; ++i) output[i] = sv;
+            }
+        }
+    };
+
+    // Register scalar fn for fused loops
+    if (idx >= binaryScalar_.size()) {
+        binaryScalar_.resize(idx + 1);
+    }
+    binaryScalar_[idx] = scalarFn;
 }
 
 }  // namespace quantcore

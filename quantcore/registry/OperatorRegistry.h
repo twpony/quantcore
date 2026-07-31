@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "quantcore/core/Types.h"
+#include "quantcore/storage/ColView.h"
 
 namespace quantcore {
 
@@ -30,8 +31,28 @@ namespace quantcore {
 // Type-erased evaluate function pointers
 // ============================================================
 
-using UnaryEvalFn  = void (*)(const Operand&, double*, std::size_t, const uint64_t*);
-using BinaryEvalFn = void (*)(const Operand&, const Operand&, double*, std::size_t, const uint64_t*);
+using UnaryEvalFn   = void (*)(const Operand&, double*, std::size_t, const uint64_t*);
+using BinaryEvalFn  = void (*)(const Operand&, const Operand&, double*, std::size_t, const uint64_t*);
+using RollingEvalFn = void (*)(ColView<double>, double*, std::size_t, const std::vector<double>&);
+
+/// Binary rolling evaluation function: (inputX, inputY, output, window, extraParams)
+using BinaryRollingEvalFn = void (*)(ColView<double>, ColView<double>, double*,
+                                     std::size_t, const std::vector<double>&);
+
+/// Scalar function pointer types for fused-loop evaluation.
+/// Indexed by UnaryOpCode / BinaryOpCode; called per-element in a fused loop.
+using UnaryScalarFn  = double (*)(double);
+using BinaryScalarFn = double (*)(double, double);
+
+/// Red evaluation function.  The third parameter carries per-call extra
+/// arguments for parameterized operators (e.g., RED_QUANTILE(q)).
+/// Stateless operators ignore it.
+using RedEvalFn     = void (*)(ColView<double>, double*, const std::vector<double>&);
+
+/// CS evaluation function.  The third parameter carries per-call extra
+/// arguments for parameterized operators (e.g., CS_WINSORIZE(lowerPct, upperPct)).
+/// Stateless operators ignore it.
+using CsEvalFn      = void (*)(ColView<double>, double*, const std::vector<double>&);
 
 class OperatorRegistry {
 public:
@@ -44,7 +65,6 @@ public:
     template <typename OpType>
     void registerUnary(const std::string& name, UnaryOpCode code) {
         unaryRegistry_[name] = code;
-        // Capture the stateless operator's evaluate method
         auto idx = static_cast<std::size_t>(code);
         if (idx >= unaryDispatch_.size()) {
             unaryDispatch_.resize(idx + 1);
@@ -54,6 +74,11 @@ public:
             OpType op;
             op.evaluate(input, output, n, mask);
         };
+        // Register scalar fn for fused loops
+        if (idx >= unaryScalar_.size()) {
+            unaryScalar_.resize(idx + 1);
+        }
+        unaryScalar_[idx] = OpType::evaluateScalar;
     }
 
     UnaryOpCode findUnary(const std::string& name) const;
@@ -91,6 +116,11 @@ public:
             OpType op;
             op.evaluate(lhs, rhs, output, n, mask);
         };
+        // Register scalar fn for fused loops
+        if (idx >= binaryScalar_.size()) {
+            binaryScalar_.resize(idx + 1);
+        }
+        binaryScalar_[idx] = OpType::evaluateScalar;
     }
 
     BinaryOpCode findBinary(const std::string& name) const;
@@ -149,6 +179,205 @@ public:
     CsOpCode findCs(const std::string& name) const;
     std::vector<std::string> listCs() const;
 
+    // ============================================================
+    // Rolling operator dispatch registration
+    // ============================================================
+
+    template <typename OpType>
+    void registerRollingDispatch(RollingOpCode code) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= rollingDispatch_.size()) {
+            rollingDispatch_.resize(idx + 1);
+        }
+        rollingDispatch_[idx] = [](ColView<double> input,
+                                   double* output,
+                                   std::size_t window,
+                                   const std::vector<double>& /*params*/) {
+            OpType op(window);
+            op.evaluate(input, output);
+        };
+    }
+
+    /// Register a rolling operator with a raw function pointer.
+    /// Used for RollingQuantileOp which requires an extra `q` parameter.
+    void registerRollingDispatchRaw(RollingOpCode code, RollingEvalFn fn) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= rollingDispatch_.size()) {
+            rollingDispatch_.resize(idx + 1);
+        }
+        rollingDispatch_[idx] = fn;
+    }
+
+    /// Invoke a rolling operator by enum code.
+    /// @param extraParams  per-call parameters (e.g., q for RollingQuantileOp).
+    void invokeRolling(RollingOpCode code,
+                       ColView<double> input,
+                       double* output,
+                       std::size_t window,
+                       const std::vector<double>& extraParams = {}) const;
+
+    // ============================================================
+    // Binary rolling operator dispatch registration (rolling_corr, rolling_cov, ...)
+    // ============================================================
+
+    /// Register a binary rolling operator for enum-based dispatch.
+    /// The operator is constructed with `window` from the dispatch lambda.
+    template <typename OpType>
+    void registerBinaryRollingDispatch(RollingOpCode code) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= binaryRollingDispatch_.size()) {
+            binaryRollingDispatch_.resize(idx + 1);
+        }
+        binaryRollingDispatch_[idx] = [](ColView<double> x, ColView<double> y,
+                                          double* output, std::size_t window,
+                                          const std::vector<double>& /*params*/) {
+            OpType op(window);
+            op.evaluate(x, y, output);
+        };
+    }
+
+    /// Register a binary rolling operator with a raw function pointer.
+    void registerBinaryRollingDispatchRaw(RollingOpCode code, BinaryRollingEvalFn fn) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= binaryRollingDispatch_.size()) {
+            binaryRollingDispatch_.resize(idx + 1);
+        }
+        binaryRollingDispatch_[idx] = fn;
+    }
+
+    /// Check whether a RollingOpCode is a binary rolling operator.
+    bool isBinaryRolling(RollingOpCode code) const noexcept {
+        auto idx = static_cast<std::size_t>(code);
+        return idx < binaryRollingDispatch_.size()
+            && binaryRollingDispatch_[idx] != nullptr;
+    }
+
+    /// Invoke a binary rolling operator by enum code.
+    /// @param extraParams  per-call parameters (e.g., ddof for rolling_cov).
+    void invokeBinaryRolling(RollingOpCode code,
+                             ColView<double> x,
+                             ColView<double> y,
+                             double* output,
+                             std::size_t window,
+                             const std::vector<double>& extraParams = {}) const;
+
+    // ============================================================
+    // Red operator dispatch registration
+    // ============================================================
+
+    /// Register a stateless Red operator for enum-based dispatch.
+    /// The operator is default-constructed in the dispatch lambda.
+    template <typename OpType>
+    void registerRedDispatch(RedOpCode code) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= redDispatch_.size()) {
+            redDispatch_.resize(idx + 1);
+        }
+        redDispatch_[idx] = [](ColView<double> input, double* output,
+                               const std::vector<double>& /*params*/) {
+            OpType op;
+            op.evaluate(input, output);
+        };
+    }
+
+    /// Register a Red operator with a raw function pointer.
+    /// Used for parameterized operators whose dispatch lambda needs
+    /// custom parameter extraction from the extraParams vector.
+    void registerRedDispatchRaw(RedOpCode code, RedEvalFn fn) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= redDispatch_.size()) {
+            redDispatch_.resize(idx + 1);
+        }
+        redDispatch_[idx] = fn;
+    }
+
+    /// Invoke a Red operator by enum code.
+    /// @param extraParams  per-call parameters for parameterized operators
+    ///                     (empty vector for stateless operators).
+    void invokeRed(RedOpCode code,
+                   ColView<double> values,
+                   double* output,
+                   const std::vector<double>& extraParams = {}) const;
+
+    // ============================================================
+    // CS operator dispatch registration
+    // ============================================================
+
+    /// Register a stateless CS operator for enum-based dispatch.
+    /// The operator is default-constructed in the dispatch lambda.
+    /// Dispatches to evaluateSimd for proper batch computation (O(N log N)
+    /// for rank, O(N) for zscore/normalize) instead of the O(N²) per-element
+    /// evaluateScalar loop in the CRTP base evaluate().
+    template <typename OpType>
+    void registerCsDispatch(CsOpCode code) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= csDispatch_.size()) {
+            csDispatch_.resize(idx + 1);
+        }
+        csDispatch_[idx] = [](ColView<double> input, double* output,
+                              const std::vector<double>& /*params*/) {
+            OpType op;
+            op.template evaluateSimd<SimdLevel::SCALAR>(input, output);
+        };
+    }
+
+    /// Register a CS operator with a raw function pointer.
+    /// Used for parameterized operators whose dispatch lambda needs
+    /// custom parameter extraction from the extraParams vector.
+    void registerCsDispatchRaw(CsOpCode code, CsEvalFn fn) {
+        auto idx = static_cast<std::size_t>(code);
+        if (idx >= csDispatch_.size()) {
+            csDispatch_.resize(idx + 1);
+        }
+        csDispatch_[idx] = fn;
+    }
+
+    /// Invoke a CS operator by enum code.
+    /// @param extraParams  per-call parameters for parameterized operators
+    ///                     (empty vector for stateless operators).
+    void invokeCs(CsOpCode code,
+                  ColView<double> values,
+                  double* output,
+                  const std::vector<double>& extraParams = {}) const;
+
+    // ============================================================
+    // Scalar function access (for FusedLoopGenerator)
+    // ============================================================
+
+    /// Retrieve the evaluateScalar function pointer for a unary op.
+    /// Returns nullptr if not registered.
+    UnaryScalarFn getUnaryScalar(UnaryOpCode code) const noexcept {
+        auto idx = static_cast<std::size_t>(code);
+        return (idx < unaryScalar_.size()) ? unaryScalar_[idx] : nullptr;
+    }
+
+    /// Retrieve the evaluateScalar function pointer for a binary op.
+    /// Returns nullptr if not registered.
+    BinaryScalarFn getBinaryScalar(BinaryOpCode code) const noexcept {
+        auto idx = static_cast<std::size_t>(code);
+        return (idx < binaryScalar_.size()) ? binaryScalar_[idx] : nullptr;
+    }
+
+    // ============================================================
+    // Custom operator registration (user-extensible)
+    // ============================================================
+
+    /// Register a custom unary operator for use in string expressions.
+    /// @param name     Name for formula strings (case-insensitive).
+    /// @param code     Must be UnaryOpCode::CUSTOM_0 .. CUSTOM_7.
+    /// @param scalarFn The evaluateScalar function (double → double).
+    void registerCustomUnary(const std::string& name,
+                             UnaryOpCode code,
+                             UnaryScalarFn scalarFn);
+
+    /// Register a custom binary operator for use in string expressions.
+    /// @param name     Name for formula strings.
+    /// @param code     Must be BinaryOpCode::CUSTOM_0 .. CUSTOM_3.
+    /// @param scalarFn The evaluateScalar function (double, double → double).
+    void registerCustomBinary(const std::string& name,
+                              BinaryOpCode code,
+                              BinaryScalarFn scalarFn);
+
 private:
     OperatorRegistry() = default;
 
@@ -161,6 +390,18 @@ private:
     // Dispatch tables: enum code → evaluate function
     std::vector<UnaryEvalFn>   unaryDispatch_;
     std::vector<BinaryEvalFn>  binaryDispatch_;
+    std::vector<RollingEvalFn> rollingDispatch_;
+    std::vector<BinaryRollingEvalFn> binaryRollingDispatch_;
+    std::vector<RedEvalFn>     redDispatch_;
+    std::vector<CsEvalFn>      csDispatch_;
+
+    // Scalar fn tables: enum code → evaluateScalar (for fused loops)
+    std::vector<UnaryScalarFn>  unaryScalar_;
+    std::vector<BinaryScalarFn> binaryScalar_;
+
+    // Custom operator dispatch (capturing lambdas → std::function needed)
+    std::vector<std::function<void(const Operand&, double*, std::size_t, const uint64_t*)>> customUnaryDispatch_;
+    std::vector<std::function<void(const Operand&, const Operand&, double*, std::size_t, const uint64_t*)>> customBinaryDispatch_;
 };
 
 }  // namespace quantcore

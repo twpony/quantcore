@@ -1,14 +1,22 @@
 # QuantCore core library
+# Built with -fPIC so it can be linked into both static executables
+# and shared libraries (e.g., factors .so).
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(quantcore STATIC)
 
 target_sources(quantcore PRIVATE
     # core
     core/Logger.cpp
+    core/FactorCalculator.cpp
+
+    # factors (pure C++ factors linked statically for zero-overhead calls)
+    ../factors/alpha_1001.cpp
 
     # storage
     storage/Column.cpp
     storage/TimestampIndex.cpp
     storage/MarketData.cpp
+    storage/PanelData.cpp
 
     # engine
     engine/ExecutionEngine.cpp
@@ -28,7 +36,10 @@ target_sources(quantcore PRIVATE
     registry/OperatorRegistry.cpp
 )
 
-target_include_directories(quantcore PUBLIC ${PROJECT_SOURCE_DIR})
+target_include_directories(quantcore PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
 
 # SIMD preprocessor defines
 if(QUANTCORE_ENABLE_AVX512)
@@ -81,3 +92,25 @@ endif()
 
 # Generate compile_commands.json for tooling
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ============================================================
+# Install rules
+# ============================================================
+
+include(GNUInstallDirs)
+
+install(TARGETS quantcore
+    EXPORT QuantCoreTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+# Install all public headers, preserving directory structure.
+# Consumers use: #include "quantcore/core/Types.h"
+#                  #include "quantcore/expression/ExprNode.h"  etc.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/quantcore
+    FILES_MATCHING
+    PATTERN "*.h"
+    PATTERN "*.cpp" EXCLUDE
+    PATTERN "CMakeLists.txt" EXCLUDE
+)
